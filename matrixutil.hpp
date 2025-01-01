@@ -36,6 +36,18 @@ namespace ndtcpp
         return result;
     }
 
+    auto operator*(const mat2x2& mat1, const mat2x2& mat2)
+    {
+        mat2x2 result;
+        result.a = mat1.a * mat2.a + mat1.b * mat2.c;
+        result.b = mat1.a * mat2.b + mat1.b * mat2.d;
+
+        result.c = mat1.c * mat2.a + mat1.d * mat2.c;
+        result.d = mat1.c * mat2.b + mat1.d * mat2.d;
+
+        return result;
+    }
+
     auto operator*(const mat3x3& mat, const point3& vec)
     {
         point3 result;

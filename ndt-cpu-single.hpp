@@ -152,37 +152,6 @@ inline ndtcpp::point3 solve3x3(const ndtcpp::mat3x3& m, const ndtcpp::point3& p)
     return solution;
 }
 
-inline ndtcpp::point3 solve3x3_LU(const ndtcpp::mat3x3& m, const ndtcpp::point3& p) {
-    const float u11 = m.a;
-    const float u12 = m.b;
-    const float u13 = m.c;
-    const float l21 = m.d / u11;
-    const float u22 = m.e - l21 * u12;
-    const float u23 = m.f - l21 * u13;
-    const float l31 = m.g / u11;
-    const float l32 = (m.h - l31 * u12) / u22;
-    const float u33 = m.i - l31 * u13 - l32 * u23;
-    // ndtcpp::mat3x3 L = {
-    //     1.0f, 0.0f, 0.0f,
-    //      l21, 1.0f, 0.0f,
-    //      l31,  l32, 1.0f
-    // };
-    // ndtcpp::mat3x3 U = {
-    //     u11,  u12,  u13,
-    //     0.0f, u22,  u23,
-    //     0.0f, 0.0f, u33
-    // };
-    const float y1 = p.x;
-    const float y2 = p.y - l21 * y1;
-    const float y3 = p.z - l31 * y1 - l32 * y2;
-
-    const float x3 = y3 / u33;
-    const float x2 = (y2 - u23 * x3) / u22;
-    const float x1 = (y1 - u12 * x2 - u23 * x3) / u11;
-
-    return {x1, x2, x3};
-}
-
 inline ndtcpp::mat3x3 expmap(const ndtcpp::point3& point){
     auto t = point.z;
     auto c = cosf(t);
@@ -263,6 +232,14 @@ inline ndtcpp::mat3x3 transpose(const ndtcpp::mat3x3& input_mat){
         input_mat.a, input_mat.d, input_mat.g,
         input_mat.b, input_mat.e, input_mat.h,
         input_mat.c, input_mat.f, input_mat.i
+    };
+    return transpose_mat;
+}
+
+inline ndtcpp::mat2x2 transpose(const ndtcpp::mat2x2& input_mat){
+    const ndtcpp::mat2x2 transpose_mat{
+        input_mat.a, input_mat.c,
+        input_mat.b, input_mat.d,
     };
     return transpose_mat;
 }
@@ -437,7 +414,6 @@ inline void ndt_scan_matching(
         H_Mat.i += 1e-6;
 
         const ndtcpp::point3 delta = solve3x3(H_Mat, b_Point);
-        // const ndtcpp::point3 delta = solve3x3_LU(H_Mat, b_Point);
         trans_mat = trans_mat * expmap(delta);
 
         const float error = multiplyPowPoint3(delta);
@@ -473,6 +449,153 @@ inline void ndt_scan_matching(
         if (iter == max_iter_num - 1) {
             if (verbose) {
                 std::cout << "END NDT NOT CONVERGED. ERROR VALUE: " << min_error << std::endl;
+            }
+            trans_mat = min_trans_mat;
+        }
+    }
+}
+
+inline void gicp_scan_matching(
+    ndtcpp::mat3x3& trans_mat,
+    const std::vector<ndtpoint2>& source_points,
+    std::vector<ndtpoint2>& target_points, bool verbose = false
+) {
+    const size_t max_iter_num = 20;
+    const float max_correspondence_distance = 3.0f;
+    const float max_distance2 = max_correspondence_distance * max_correspondence_distance;
+    const size_t point_step = 10;
+
+    const size_t target_points_size = target_points.size();
+    const size_t source_points_size = source_points.size();
+
+    bool is_converged = false;
+    ndtcpp::point3 prev_delta;
+    float min_error = std::numeric_limits<float>::max();
+    ndtcpp::mat3x3 min_trans_mat;
+
+    kdtree::construct(target_points.begin(), target_points.end());
+    for(size_t iter = 0; iter < max_iter_num; iter++){
+        ndtcpp::mat3x3 H_Mat {
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f
+        };
+
+        ndtcpp::point3 b_Point {
+            0.0f, 0.0f, 0.0f
+        };
+
+        std::vector<std::tuple<ndtcpp::mat3x3, ndtcpp::point2, int>> IMs;
+
+        for(auto point_iter = 0; point_iter < source_points_size; point_iter += point_step){
+            ndtpoint2 query_point = {
+                transformPointCopy(trans_mat, source_points[point_iter].mean),
+                {}
+            };
+            ndtpoint2 target_point;
+            float target_distance;
+            kdtree::search_knn(target_points.begin(), target_points.end(), &target_point, &target_distance, 1, query_point);
+
+            if(target_distance > max_distance2){continue;}
+
+            const auto identity_plus_target_cov = ndtcpp::mat3x3{
+                target_point.cov.a, target_point.cov.b, 0.0f,
+                target_point.cov.c, target_point.cov.d, 0.0f,
+                0.0f, 0.0f, 1.0f
+            };
+
+            const ndtcpp::mat2x2 trans_mat2x2 = {trans_mat.a, trans_mat.b, trans_mat.d, trans_mat.e};
+            const auto trans_mat2x2_T = transpose(trans_mat2x2);
+
+            const auto transformed_query_cov = trans_mat2x2 * source_points[point_iter].cov * trans_mat2x2_T;
+            const auto identity_plus_query_cov = ndtcpp::mat3x3{
+                transformed_query_cov.a, transformed_query_cov.b, 0.0f,
+                transformed_query_cov.c, transformed_query_cov.d, 0.0f,
+                0.0f, 0.0f, 1.0f
+            };;
+
+            ndtcpp::mat3x3 IM = inverse3x3Copy(identity_plus_target_cov);
+            IM += inverse3x3Copy(identity_plus_query_cov);
+
+            const auto residual = ndtcpp::point3{
+                target_point.mean.x - query_point.mean.x,
+                target_point.mean.y - query_point.mean.y,
+                0.0f
+            };
+
+            const ndtcpp::point2 v_point = transformPointCopy(trans_mat, skewd(source_points[point_iter].mean));
+
+            const auto mat_J = ndtcpp::mat3x3{
+                trans_mat.a * -1.0f, trans_mat.b * -1.0f, v_point.x,
+                trans_mat.d * -1.0f, trans_mat.e * -1.0f, v_point.y,
+                trans_mat.g * -1.0f, trans_mat.h * -1.0f, trans_mat.i * -1.0f
+            };
+
+            const ndtcpp::mat3x3 mat_J_T = transpose(mat_J);
+            const ndtcpp::mat3x3 mat_J_T_IM = mat_J_T * IM;
+
+            H_Mat += (mat_J_T_IM * mat_J);
+            b_Point += (mat_J_T_IM * residual);
+
+            IMs.push_back({IM, target_point.mean, point_iter});
+        }
+        b_Point.x *= -1.0f;
+        b_Point.y *= -1.0f;
+        b_Point.z *= -1.0f;
+
+        // more stable solve
+        H_Mat.a += 1e-6;
+        H_Mat.e += 1e-6;
+        H_Mat.i += 1e-6;
+
+        const ndtcpp::point3 delta = solve3x3(H_Mat, b_Point);
+        trans_mat = trans_mat * expmap(delta);
+
+        // const float error = multiplyPowPoint3(delta);
+        float error = 0.0f;
+        for (const auto& [IM, target_pt, point_iter]: IMs) {
+            const auto trans_source_pt = transformPointCopy(trans_mat, source_points[point_iter].mean);
+            const auto residual = ndtcpp::point3{
+                target_pt.x - trans_source_pt.x,
+                target_pt.y - trans_source_pt.y,
+                0.0f
+            };
+            const ndtcpp::point3 IM_residual = IM * residual;
+            error += 0.5f * (residual.x * IM_residual.x + residual.y * IM_residual.y);
+        }
+
+        if(error < 1e-4){
+            is_converged = true;
+        }
+
+        if (iter > 0) {
+            const float dx = prev_delta.x - delta.x;
+            const float dy = prev_delta.y - delta.y;
+            const float dz = prev_delta.z - delta.z;
+            const auto d = std::max(std::max(std::fabs(dx), std::fabs(dy)), std::fabs(dz));
+            if (d < 1e-4) {
+                is_converged = true;
+            }
+        }
+
+        if (is_converged) {
+            if (verbose) {
+                std::cout << "END GICP. ITER: " << iter;
+                std::cout << ", ERROR VALUE: " << error << std::endl;
+            }
+            break;
+        }
+
+        prev_delta = delta;
+
+        if (min_error > error) {
+            min_error = error;
+            min_trans_mat = trans_mat;
+        }
+
+        if (iter == max_iter_num - 1) {
+            if (verbose) {
+                std::cout << "END GICP NOT CONVERGED. ERROR VALUE: " << min_error << std::endl;
             }
             trans_mat = min_trans_mat;
         }
@@ -549,6 +672,74 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
         const auto rot = std::atan(e1) * (180.0f / M_PI);
 
         file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << target_pt_color << "' />\n";
+    }
+
+    file << "</svg>\n";
+    file.close();
+}
+
+inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::vector<ndtpoint2>& point_2, const std::string& file_name, float voxel_size=1.0f) {
+    std::ofstream file(file_name);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open file for writing." << std::endl;
+        return;
+    }
+    const int size = 500;
+    const float scale = 10.0f;
+    const float ellipse_scale = 3.0f;
+    const float offset = 250.0f;
+    const std::string source_ellipse_color = "pink";
+    const std::string target_ellipse_color = "green";
+    const std::string source_pt_color = "red";
+    const std::string target_pt_color = "darkgreen";
+
+    file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
+    file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
+    const int voxel_interval = static_cast<int>(std::floor(1.0f / voxel_size * scale));
+    for (size_t i = 0; i < size + voxel_interval; i+=voxel_interval) {
+        file << "<path d='M" << i << ",0 L" << i << "," << size << "' />\n";
+        file << "<path d='M0," << i << " L" << size << "," << i << "' />\n";
+    }
+    file << "</g>\n";
+    file << "<g fill='#fff' stroke='#000' stroke-width='1'>\n";
+    file << "<path d='M0,0 L0," << size << "' />\n";
+    file << "<path d='M0,0 L" << size << ",0' />\n";
+    file << "<path d='M0," << size << " L" << size << "," << size << "' />\n";
+    file << "<path d='M" << size << ",0 L" << size << "," << size << "' />\n";
+    file << "</g>\n";
+
+    for (const auto& point : point_1) {
+        const auto cx = point.mean.x * scale + offset;
+        const auto cy = point.mean.y * scale + offset;
+        const auto& cov = point.cov;
+        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float e1 = (u - cov.a) / cov.b;
+        // const float e2 = (v - cov.a) / cov.b;
+        // 95%
+        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+        const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+        file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << source_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << source_pt_color << "' />\n";
+    }
+
+    for (const auto& point : point_2) {
+        const auto cx = point.mean.x * scale + offset;
+        const auto cy = point.mean.y * scale + offset;
+        const auto& cov = point.cov;
+        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float e1 = (u - cov.a) / cov.b;
+        // const float e2 = (v - cov.a) / cov.b;
+        // 95%
+        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+        const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+        file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << target_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << target_pt_color << "' />\n";
     }
 
