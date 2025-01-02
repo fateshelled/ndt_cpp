@@ -14,6 +14,8 @@ g++
 g++ -O2 ./main.cpp -o main.out && ./main.out
 
 g++ -O2 ./main_downsample.cpp -o main2.out && ./main2.out
+
+g++ -O2 ./main_gicp.cpp -o main3.out && ./main3.out
 ```
 
 NVIDIA HPC SDK
@@ -21,6 +23,8 @@ NVIDIA HPC SDK
 nvc++ -fast -O2 ./main.cpp -o main.out && ./main.out
 
 nvc++ -fast -O2 ./main_downsample.cpp -o main2.out && ./main2.out
+
+nvc++ -fast -O2 ./main_gicp.cpp -o main3.out && ./main3.out
 ```
 
 
