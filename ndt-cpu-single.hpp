@@ -301,6 +301,40 @@ inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<
     }
 }
 
+inline void compute_voxel_downsampling(
+    const std::vector<ndtcpp::point2>& points, std::vector<ndtcpp::point2> &results,
+    float voxel_size = 1.0f, std::size_t voxel_min_count = 4) {
+
+    const auto point_size = points.size();
+
+    std::unordered_map<std::tuple<int, int>, std::vector<size_t>, tuple_int_hash> voxel_indices;
+    const float voxel_size_inv = 1.0f / voxel_size;
+
+    for(size_t i = 0; i < point_size; i++) {
+        const auto& pt0 = points[i];
+        const std::tuple<int, int> voxel = {
+            std::floor(pt0.x * voxel_size_inv),
+            std::floor(pt0.y * voxel_size_inv)
+        };
+
+        voxel_indices[voxel].push_back(i);
+    }
+
+    results.clear();
+    results.reserve(voxel_indices.size());
+    for (const auto& [voxel, indices]: voxel_indices) {
+        if (indices.size() < voxel_min_count) continue;
+
+        std::vector<ndtcpp::point2> result_points;
+        result_points.reserve(indices.size());
+        for (const auto& i: indices) {
+            result_points.push_back(points[i]);
+        }
+        const auto mean = compute_mean(result_points);
+        results.push_back(mean);
+    }
+}
+
 inline void compute_ndt_points_downsampling(
     const std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results,
     float voxel_size = 1.0f, std::size_t voxel_min_count = 4) {
@@ -455,6 +489,20 @@ inline void ndt_scan_matching(
     }
 }
 
+namespace {
+inline float calc_gicp_error(
+    const ndtcpp::point2& trans_source, const ndtcpp::point2& target, const ndtcpp::mat3x3& IM)
+{
+    const auto residual = ndtcpp::point3{
+        target.x - trans_source.x,
+        target.y - trans_source.y,
+        0.0f
+    };
+    const ndtcpp::point3 IM_residual = IM * residual;
+    return 0.5f * (residual.x * IM_residual.x + residual.y * IM_residual.y);
+}
+}
+
 inline void gicp_scan_matching(
     ndtcpp::mat3x3& trans_mat,
     const std::vector<ndtpoint2>& source_points,
@@ -464,14 +512,24 @@ inline void gicp_scan_matching(
     const float max_correspondence_distance = 3.0f;
     const float max_distance2 = max_correspondence_distance * max_correspondence_distance;
     const size_t point_step = 10;
+    const float converged_error_th = 1e-4f;
+    const float converged_delta_th = 1e-4f;
 
-    const size_t target_points_size = target_points.size();
-    const size_t source_points_size = source_points.size();
+    // for Levenberg-Marquardt
+    // if max_inner_iter_num == 1 and lambda_factor == 1.0f -> Gauss-Newton
+    const size_t max_inner_iter_num = 10;
+    const float init_lambda = 1e-6f;
+    const float lambda_factor = 10.0f;
+
+    double lambda = init_lambda;
 
     bool is_converged = false;
     ndtcpp::point3 prev_delta;
     float min_error = std::numeric_limits<float>::max();
     ndtcpp::mat3x3 min_trans_mat;
+
+    const size_t target_points_size = target_points.size();
+    const size_t source_points_size = source_points.size();
 
     kdtree::construct(target_points.begin(), target_points.end());
     for(size_t iter = 0; iter < max_iter_num; iter++){
@@ -484,6 +542,7 @@ inline void gicp_scan_matching(
         ndtcpp::point3 b_Point {
             0.0f, 0.0f, 0.0f
         };
+        float error = 0.0f;
 
         std::vector<std::tuple<ndtcpp::mat3x3, ndtcpp::point2, int>> IMs;
 
@@ -514,8 +573,9 @@ inline void gicp_scan_matching(
                 0.0f, 0.0f, 1.0f
             };;
 
-            ndtcpp::mat3x3 IM = inverse3x3Copy(identity_plus_target_cov);
-            IM += inverse3x3Copy(identity_plus_query_cov);
+            // Information Matrix
+            const ndtcpp::mat3x3 IM = inverse3x3Copy(identity_plus_target_cov) + \
+                                      inverse3x3Copy(identity_plus_query_cov);
 
             const auto residual = ndtcpp::point3{
                 target_point.mean.x - query_point.mean.x,
@@ -534,38 +594,59 @@ inline void gicp_scan_matching(
             const ndtcpp::mat3x3 mat_J_T = transpose(mat_J);
             const ndtcpp::mat3x3 mat_J_T_IM = mat_J_T * IM;
 
-            H_Mat += (mat_J_T_IM * mat_J);
-            b_Point += (mat_J_T_IM * residual);
+            H_Mat += (mat_J_T_IM * mat_J);      // J.T * IM * J
+            b_Point += (mat_J_T_IM * residual); // J.T * IM * residual
 
+            error += calc_gicp_error(query_point.mean, target_point.mean, IM);
             IMs.push_back({IM, target_point.mean, point_iter});
         }
         b_Point.x *= -1.0f;
         b_Point.y *= -1.0f;
         b_Point.z *= -1.0f;
 
-        // more stable solve
-        H_Mat.a += 1e-6;
-        H_Mat.e += 1e-6;
-        H_Mat.i += 1e-6;
+        ndtcpp::point3 delta;
+        ndtcpp::point3 prev_delta_inner;
+        for (size_t inner_iter = 0; inner_iter < max_inner_iter_num; ++inner_iter) {
+            // damping
+            H_Mat.a += lambda;
+            H_Mat.e += lambda;
+            H_Mat.i += lambda;
 
-        const ndtcpp::point3 delta = solve3x3(H_Mat, b_Point);
-        trans_mat = trans_mat * expmap(delta);
+            delta = solve3x3(H_Mat, b_Point);
+            trans_mat = trans_mat * expmap(delta);
 
-        // const float error = multiplyPowPoint3(delta);
-        float error = 0.0f;
-        for (const auto& [IM, target_pt, point_iter]: IMs) {
-            const auto trans_source_pt = transformPointCopy(trans_mat, source_points[point_iter].mean);
-            const auto residual = ndtcpp::point3{
-                target_pt.x - trans_source_pt.x,
-                target_pt.y - trans_source_pt.y,
-                0.0f
-            };
-            const ndtcpp::point3 IM_residual = IM * residual;
-            error += 0.5f * (residual.x * IM_residual.x + residual.y * IM_residual.y);
-        }
+            // const float new_error = multiplyPowPoint3(delta);
+            float new_error = 0.0f;
+            for (const auto& [IM, target, point_iter]: IMs) {
+                const auto trans_source = transformPointCopy(trans_mat, source_points[point_iter].mean);
+                new_error += calc_gicp_error(trans_source, target, IM);
+            }
+            if (new_error <= error) {
+                error = new_error;
+                if(error < converged_error_th){
+                    is_converged = true;
+                }
+                lambda /= lambda_factor;
+                break;
+            }
+            else {
+                lambda *= lambda_factor;
+            }
 
-        if(error < 1e-4){
-            is_converged = true;
+            if (inner_iter > 0) {
+                const float dx = prev_delta_inner.x - delta.x;
+                const float dy = prev_delta_inner.y - delta.y;
+                const float dz = prev_delta_inner.z - delta.z;
+                const auto d = std::max(std::max(std::fabs(dx), std::fabs(dy)), std::fabs(dz));
+                if (d < converged_delta_th) {
+                    break;
+                }
+            }
+            prev_delta_inner = delta;
+
+            if (is_converged) {
+                error = new_error;
+            }
         }
 
         if (iter > 0) {
@@ -573,7 +654,7 @@ inline void gicp_scan_matching(
             const float dy = prev_delta.y - delta.y;
             const float dz = prev_delta.z - delta.z;
             const auto d = std::max(std::max(std::fabs(dx), std::fabs(dy)), std::fabs(dz));
-            if (d < 1e-4) {
+            if (d < converged_delta_th) {
                 is_converged = true;
             }
         }

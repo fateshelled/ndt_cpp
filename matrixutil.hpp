@@ -57,6 +57,24 @@ namespace ndtcpp
         return result;
     }
 
+    auto operator+(const mat3x3& mat1, const mat3x3& mat2)
+    {
+        mat3x3 result {
+            mat1.a + mat2.a,
+            mat1.b + mat2.b,
+            mat1.c + mat2.c,
+
+            mat1.d + mat2.d,
+            mat1.e + mat2.e,
+            mat1.f + mat2.f,
+
+            mat1.g + mat2.g,
+            mat1.h + mat2.h,
+            mat1.i + mat2.i,
+        };
+        return result;
+    }
+
     auto operator+=(mat3x3& mat1, const mat3x3& mat2)
     {
         mat1.a += mat2.a;
