@@ -35,6 +35,12 @@ struct ndtpoint2 {
     ndtcpp::point2 mean;
     ndtcpp::mat2x2 cov;
 };
+
+struct scan_matching_result {
+    bool converged = false;
+    float error = std::numeric_limits<float>::max();
+};
+
 } // namespace ndtcpp
 
 template <std::size_t I>
@@ -370,7 +376,7 @@ inline void compute_ndt_points_downsampling(
     }
 }
 
-inline void ndt_scan_matching(
+inline scan_matching_result ndt_scan_matching(
     ndtcpp::mat3x3& trans_mat,
     const std::vector<ndtcpp::point2>& source_points,
     std::vector<ndtpoint2>& target_points, bool verbose = false
@@ -466,6 +472,7 @@ inline void ndt_scan_matching(
         }
 
         if (is_converged) {
+            min_error = error;
             if (verbose) {
                 std::cout << "END NDT. ITER: " << iter;
                 std::cout << ", ERROR VALUE: " << error << std::endl;
@@ -487,6 +494,7 @@ inline void ndt_scan_matching(
             trans_mat = min_trans_mat;
         }
     }
+    return {is_converged, min_error};
 }
 
 namespace {
@@ -503,7 +511,7 @@ inline float calc_gicp_error(
 }
 }
 
-inline void gicp_scan_matching(
+inline scan_matching_result gicp_scan_matching(
     ndtcpp::mat3x3& trans_mat,
     const std::vector<ndtpoint2>& source_points,
     std::vector<ndtpoint2>& target_points, bool verbose = false
@@ -660,6 +668,7 @@ inline void gicp_scan_matching(
         }
 
         if (is_converged) {
+            min_error = error;
             if (verbose) {
                 std::cout << "END GICP. ITER: " << iter;
                 std::cout << ", ERROR VALUE: " << error << std::endl;
@@ -681,6 +690,8 @@ inline void gicp_scan_matching(
             trans_mat = min_trans_mat;
         }
     }
+
+    return {is_converged, min_error};
 }
 
 //debug
@@ -712,17 +723,17 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
         std::cerr << "Cannot open file for writing." << std::endl;
         return;
     }
-    const int size = 500;
+    const int size = 300;
     const float scale = 10.0f;
     const float ellipse_scale = 3.0f;
-    const float offset = 250.0f;
+    const float offset = size / 2.0f;
     const std::string ellipse_color = "green";
     const std::string source_pt_color = "red";
     const std::string target_pt_color = "black";
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
-    const int voxel_interval = static_cast<int>(std::floor(1.0f / voxel_size * scale));
+    const int voxel_interval = static_cast<int>(std::floor(voxel_size * scale));
     for (size_t i = 0; i < size + voxel_interval; i+=voxel_interval) {
         file << "<path d='M" << i << ",0 L" << i << "," << size << "' />\n";
         file << "<path d='M0," << i << " L" << size << "," << i << "' />\n";
@@ -766,10 +777,10 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
         std::cerr << "Cannot open file for writing." << std::endl;
         return;
     }
-    const int size = 500;
+    const int size = 300;
     const float scale = 10.0f;
     const float ellipse_scale = 3.0f;
-    const float offset = 250.0f;
+    const float offset = size / 2.0f;
     const std::string source_ellipse_color = "pink";
     const std::string target_ellipse_color = "green";
     const std::string source_pt_color = "red";
@@ -777,7 +788,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
-    const int voxel_interval = static_cast<int>(std::floor(1.0f / voxel_size * scale));
+    const int voxel_interval = static_cast<int>(std::floor(voxel_size * scale));
     for (size_t i = 0; i < size + voxel_interval; i+=voxel_interval) {
         file << "<path d='M" << i << ",0 L" << i << "," << size << "' />\n";
         file << "<path d='M0," << i << " L" << size << "," << i << "' />\n";

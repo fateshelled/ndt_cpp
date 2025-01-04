@@ -33,6 +33,9 @@ namespace ndtcpp
         float a, b, c;
         float d, e, f;
         float g, h, i;
+        static mat3x3 eye() {
+            return {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+        }
     };
 } // namespace ndtcpp
 
