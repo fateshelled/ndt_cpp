@@ -27,7 +27,7 @@
 
 namespace ndtcpp
 {
-    auto read_scan_points(const std::string& file_path) -> std::vector<point2>
+    inline auto read_scan_points(const std::string& file_path) -> std::vector<point2>
     {
         std::vector<point2> points;
         std::ifstream file(file_path);

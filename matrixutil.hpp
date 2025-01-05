@@ -19,7 +19,7 @@
 
 namespace ndtcpp
 {
-    auto operator*(const mat3x3& mat1, const mat3x3& mat2)
+    inline auto operator*(const mat3x3& mat1, const mat3x3& mat2)
     {
         mat3x3 result;
         result.a = mat1.a * mat2.a + mat1.b * mat2.d + mat1.c * mat2.g;
@@ -36,7 +36,7 @@ namespace ndtcpp
         return result;
     }
 
-    auto operator*(const mat2x2& mat1, const mat2x2& mat2)
+    inline auto operator*(const mat2x2& mat1, const mat2x2& mat2)
     {
         mat2x2 result;
         result.a = mat1.a * mat2.a + mat1.b * mat2.c;
@@ -48,7 +48,7 @@ namespace ndtcpp
         return result;
     }
 
-    auto operator*(const mat3x3& mat, const point3& vec)
+    inline auto operator*(const mat3x3& mat, const point3& vec)
     {
         point3 result;
         result.x = mat.a * vec.x + mat.b * vec.y + mat.c * vec.z;
@@ -57,7 +57,7 @@ namespace ndtcpp
         return result;
     }
 
-    auto operator+(const mat3x3& mat1, const mat3x3& mat2)
+    inline auto operator+(const mat3x3& mat1, const mat3x3& mat2)
     {
         mat3x3 result {
             mat1.a + mat2.a,
@@ -75,7 +75,7 @@ namespace ndtcpp
         return result;
     }
 
-    auto operator+=(mat3x3& mat1, const mat3x3& mat2)
+    inline auto operator+=(mat3x3& mat1, const mat3x3& mat2)
     {
         mat1.a += mat2.a;
         mat1.b += mat2.b;
@@ -90,7 +90,7 @@ namespace ndtcpp
         mat1.i += mat2.i;
     }
 
-    auto operator+=(ndtcpp::point3& point1, const ndtcpp::point3& point2){
+    inline auto operator+=(ndtcpp::point3& point1, const ndtcpp::point3& point2){
         point1.x += point2.x;
         point1.y += point2.y;
         point1.z += point2.z;
