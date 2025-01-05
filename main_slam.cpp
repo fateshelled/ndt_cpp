@@ -108,9 +108,14 @@ int main(void) {
     const float voxel_size = 0.2f;
     // const float voxel_size = 0.3f;
     const size_t voxel_min_count = 1;
+    const float map_voxel_size = 0.4f;
     const bool verbose = true;
     const size_t neighbor_n = 10;
     const bool is_gicp = true;
+
+    // debug
+    ndtcpp::writeSVGSetting setting;
+    setting.voxel_size = voxel_size;
 
     const auto init_pose = ndtcpp::mat3x3::eye();
     ndtcpp::mat3x3 odometry = init_pose;
@@ -118,7 +123,7 @@ int main(void) {
 
     auto target_points = preprocess(dataset[start_index], voxel_size, voxel_min_count, neighbor_n);
 
-    auto map_points = target_points;
+    auto map_points = preprocess(dataset[start_index], map_voxel_size, voxel_min_count, neighbor_n);
     const float keyframe_register_threshold = 0.2f;
     std::vector<ndtcpp::point2> keyframes;
     keyframes.push_back(std::get<0>(to_se2(odometry)));
@@ -197,13 +202,14 @@ int main(void) {
             } else {
                 output_path += "ndt_" + std::to_string(i) + ".svg";
             }
-            // ndtcpp::writePointsToSVG(source_points, map_points, output_path, voxel_size);
-            // ndtcpp::writePointsToSVG(source_points, target_points, output_path, voxel_size);
-            // ndtcpp::writePointsToSVG(dataset[i], target_points, output_path, voxel_size);
+            // ndtcpp::writePointsToSVG(source_points, map_points, output_path, setting);
+            // ndtcpp::writePointsToSVG(source_points, target_points, output_path, setting);
+            // ndtcpp::writePointsToSVG(dataset[i], target_points, output_path, setting);
             {
+
                 auto source = dataset[i];
                 ndtcpp::transformPointsZeroCopy(odometry, source);
-                ndtcpp::writePointsToSVG(source, map_points, output_path, voxel_size);
+                ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
             }
             // {
             //     std::vector<ndtcpp::point2> map_pts;
@@ -245,7 +251,7 @@ int main(void) {
                     points.push_back(ndtcpp::transformPointCopy(odometry, pt.mean));
                 }
                 // map_points = preprocess(points, voxel_size, 1, neighbor_n);
-                const auto tmp_map = preprocess(points, voxel_size, keyframes.size(), neighbor_n);
+                const auto tmp_map = preprocess(points, map_voxel_size, keyframes.size() / 2, neighbor_n);
                 if (tmp_map.size() >= map_points.size() * 0.7) {
                     map_points = tmp_map;
                     keyframes.push_back(pos);
