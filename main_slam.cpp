@@ -11,8 +11,26 @@
 #include "type.hpp"
 #include "ndt-cpu-single.hpp"
 
+struct Polar2
+{
+    float angle;
+    float range;
 
-std::vector<std::vector<ndtcpp::point2>> load_dataset(const std::string& file_path, float max_dist) {
+    static ndtcpp::point2 to_cart(const Polar2& polar) {
+        const float x = polar.range * std::cos(polar.angle);
+        const float y = polar.range * std::sin(polar.angle);
+        return {x, y};
+    }
+
+    static std::vector<ndtcpp::point2> to_carts(const std::vector<Polar2>& polars) {
+        std::vector<ndtcpp::point2> points;
+        std::transform(polars.begin(), polars.end(),  std::back_inserter(points), [](const Polar2& p) { return to_cart(p); });
+        return points;
+    }
+};
+
+
+std::vector<std::vector<Polar2>> load_dataset(const std::string& file_path, float min_dist, float max_dist) {
 
     std::ifstream file(file_path);
     if (!file.is_open()) {
@@ -20,7 +38,7 @@ std::vector<std::vector<ndtcpp::point2>> load_dataset(const std::string& file_pa
         return {};
     }
 
-    std::vector<std::vector<ndtcpp::point2>> dataset;
+    std::vector<std::vector<Polar2>> dataset;
     std::string line_str;
     while(std::getline(file, line_str)){
         std::istringstream iss(line_str);
@@ -34,15 +52,13 @@ std::vector<std::vector<ndtcpp::point2>> load_dataset(const std::string& file_pa
             iss >> point_num;
 
             float angle, range;
-            std::vector<ndtcpp::point2> points;
+            std::vector<Polar2> points;
             points.reserve(point_num);
             for (int i = 0; i < point_num; ++i) {
                 iss >> angle >> range;
                 angle *= (M_PI / 180.0f);
-                const float x = range * std::cos(angle);
-                const float y = range * std::sin(angle);
-                if (range <= 0.0f || max_dist < range) continue;
-                points.push_back({x, y});
+                if (range <= min_dist || max_dist < range) continue;
+                points.push_back({angle, range});
             }
             dataset.push_back(points);
         }
@@ -98,8 +114,9 @@ int main(void) {
     // std::string dataset_path = "dataset/corridor.lsc";
     std::string dataset_path = "dataset/hall.lsc";
 
+    const float min_dist = 0.01f;
     const float max_dist = 20.0f;
-    auto dataset = load_dataset(dataset_path, max_dist);
+    auto dataset = load_dataset(dataset_path, min_dist, max_dist);
 
     std::vector<double> durations_scan_matching;
     std::vector<double> durations_map_matching;
@@ -130,9 +147,10 @@ int main(void) {
     ndtcpp::mat3x3 odometry = init_pose;
     std::vector<ndtcpp::mat3x3> odom_trajectory;
 
-    auto target_points = preprocess(dataset[start_index], voxel_size, voxel_min_count, neighbor_n);
+    auto target_points_raw = Polar2::to_carts(dataset[start_index]);
+    auto target_points = preprocess(target_points_raw, voxel_size, voxel_min_count, neighbor_n);
 
-    auto map_points = preprocess(dataset[start_index], map_voxel_size, voxel_min_count, neighbor_n);
+    auto map_points = preprocess(target_points_raw, map_voxel_size, voxel_min_count, neighbor_n);
     const float keyframe_register_threshold_dist = 0.1f;
     const float keyframe_register_threshold_angle = (10.0f) * (M_PI / 180.0f);
     std::vector<ndtcpp::point2> keyframes;
@@ -140,7 +158,8 @@ int main(void) {
 
     for (size_t i = start_index + 1; i < N; ++i) {
 
-        auto source_points = preprocess(dataset[i], voxel_size, voxel_min_count, neighbor_n);
+        auto source_points_raw = Polar2::to_carts(dataset[i]);
+        auto source_points = preprocess(source_points_raw, voxel_size, voxel_min_count, neighbor_n);
 
         ndtcpp::scan_matching_result scan2scan_result;
         auto trans_mat = ndtcpp::mat3x3::eye();
@@ -153,7 +172,7 @@ int main(void) {
                 if (is_gicp) {
                     scan2scan_result = ndtcpp::gicp_scan_matching(trans_mat, source_points, target_points, verbose);
                 } else {
-                    scan2scan_result = ndtcpp::ndt_scan_matching(trans_mat, dataset[i], target_points, verbose);
+                    scan2scan_result = ndtcpp::ndt_scan_matching(trans_mat, source_points_raw, target_points, verbose);
                 }
             }
 
@@ -180,7 +199,7 @@ int main(void) {
                 if (is_gicp) {
                     scan2map_result = ndtcpp::gicp_scan_matching(new_odom, source_points, map_points, verbose);
                 } else {
-                    scan2map_result = ndtcpp::ndt_scan_matching(new_odom, dataset[i], map_points, verbose);
+                    scan2map_result = ndtcpp::ndt_scan_matching(new_odom, source_points_raw, map_points, verbose);
                 }
             }
 
@@ -224,9 +243,9 @@ int main(void) {
             }
             // ndtcpp::writePointsToSVG(source_transformed, map_points, output_path, setting);
             // ndtcpp::writePointsToSVG(source_transformed, target_points, output_path, setting);
-            // ndtcpp::writePointsToSVG(dataset[i], target_points, output_path, setting);
+            // ndtcpp::writePointsToSVG(source_points_raw, target_points, output_path, setting);
             {
-                auto source = dataset[i];
+                auto source = source_points_raw;
                 ndtcpp::transformPointsZeroCopy(odometry, source);
                 ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
             }
