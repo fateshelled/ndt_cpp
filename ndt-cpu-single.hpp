@@ -608,6 +608,9 @@ inline scan_matching_result gicp_scan_matching(
             error += calc_gicp_error(query_point.mean, target_point.mean, IM);
             IMs.push_back({IM, target_point.mean, point_iter});
         }
+        if (error == 0.0f) {
+            break;
+        }
         b_Point.x *= -1.0f;
         b_Point.y *= -1.0f;
         b_Point.z *= -1.0f;
@@ -629,6 +632,7 @@ inline scan_matching_result gicp_scan_matching(
                 const auto trans_source = transformPointCopy(trans_mat, source_points[point_iter].mean);
                 new_error += calc_gicp_error(trans_source, target, IM);
             }
+            new_error /= IMs.size();
             if (new_error <= error) {
                 error = new_error;
                 if(error < converged_error_th){
