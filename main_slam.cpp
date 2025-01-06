@@ -8,6 +8,8 @@
 #include <vector>
 #include <sstream>
 
+#include <unordered_set>
+
 #include "type.hpp"
 #include "ndt-cpu-single.hpp"
 
@@ -89,7 +91,6 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
     std::vector<ndtcpp::point2> result_points(neighbor_n);
     std::vector<float> result_distances(neighbor_n);
 
-    const float area_thresh = error_ellipse_area_thredhold;
     for(std::size_t i = 0; i < point_size; i++) {
         kdtree::search_knn(
             points.begin(), points.end(),
@@ -99,16 +100,211 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
         const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
 
         const float a = 0.5f * (cov.a + cov.d);
-        const float b = 0.5f * std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b);
-        const float u = a + b;
-        const float v = a - b;
+        const float b = (cov.a - cov.d);
+        const float c = 0.5f * std::sqrt(b * b + 4.0f * cov.b * cov.b);
+        const float u = a + c;
+        const float v = a - c;
         // u * v * PI = 誤差楕円の大きさ
-        if (u * v * M_PI > area_thresh) continue;
+        if (u * v * M_PI > error_ellipse_area_thredhold) continue;
 
         result.push_back({downsampled[i], cov});
     }
     return result;
 }
+
+inline std::vector<ndtcpp::ndtpoint2> remove_large_covariance_points(const std::vector<ndtcpp::ndtpoint2>& points, float error_ellipse_area_thredhold=0.01f) {
+    std::vector<ndtcpp::ndtpoint2> ret;
+    ret.reserve(points.size());
+
+    for (const auto& pt: points) {
+        const auto& cov = pt.cov;
+        const float a = 0.5f * (cov.a + cov.d);
+        const float b = (cov.a - cov.d);
+        const float c = 0.5f * std::sqrt(b * b + 4.0f * cov.b * cov.b);
+        const float u = a + c;
+        const float v = a - c;
+        // u * v * PI = 誤差楕円の大きさ
+        if (u * v * M_PI > error_ellipse_area_thredhold) continue;
+        ret.push_back(pt);
+    }
+    return ret;
+}
+
+
+class VoxelMap {
+private:
+    static const int STATE_UNKOWN = 0;
+    static const int STATE_OCCUPIED = 1;
+    static const int STATE_EMPTY = 2;
+    struct Voxel {
+        size_t count = 0;
+        ndtcpp::point2 mean = {0.f, 0.f};
+        float occupancy = 0.5f;
+        float probability = std::exp(0.5f) / (1.0f + std::exp(0.5f));
+        int state = VoxelMap::STATE_UNKOWN;
+    };
+    float voxel_size_;
+    float voxel_size_inv_;
+    float log_odds_;
+    float occupied_threshold_ = 0.8f;
+    float empty_threshold_ = 0.2f;
+    std::unordered_map<std::tuple<int, int>, Voxel, ndtcpp::tuple_int_hash> occupancy_;
+
+    std::unordered_set<std::tuple<int, int>, ndtcpp::tuple_int_hash> line(int sx, int sy, int ex, int ey) {
+        std::unordered_set<std::tuple<int, int>, ndtcpp::tuple_int_hash> ret;
+        const int dx = std::abs(ex - sx);
+        const int dy = std::abs(ey - sy);
+        const int x = sx < ex ? 1 : -1;
+        const int y = sy < ey ? 1 : -1;
+        int error = dx - dy;
+        int x0 = sx;
+        int y0 = sy;
+        const int x1 = ex;
+        const int y1 = ey;
+
+        while (true)
+        {
+            if (x0 == x1 && y0 == y1) break;
+
+            ret.emplace(std::tuple<int, int>(x0, y0));
+
+            const int error2 = 2 * error;
+            if (error2 > -dy) {
+                error -= dy;
+                x0 += x;
+            }
+            if (error2 < dx) {
+                error += dx;
+                y0 += y;
+            }
+
+        }
+        return ret;
+    }
+
+    static float to_probability(const Voxel& voxel) {
+        const float exp = std::exp(voxel.occupancy);
+        return exp / (1.0f + exp);
+    }
+
+public:
+    VoxelMap(float voxel_size, float odds=0.4f, float occupied_threshold=0.8f, float empty_threshold=0.2f)
+    : voxel_size_(voxel_size), voxel_size_inv_(1.f / voxel_size), log_odds_(std::log((1.0f - odds)/odds)),
+      occupied_threshold_(occupied_threshold), empty_threshold_(empty_threshold) {
+    }
+    ~VoxelMap(){}
+
+    void addPoints(const std::vector<ndtcpp::point2> points_no_trans, const ndtcpp::mat3x3& odom) {
+        const auto pos = std::get<0>(to_se2(odom));
+        const int pos_voxel_x = std::floor(pos.x * voxel_size_inv_);
+        const int pos_voxel_y = std::floor(pos.y * voxel_size_inv_);
+
+        std::unordered_map<std::tuple<int, int>, Voxel, ndtcpp::tuple_int_hash> new_occupied;
+        std::unordered_set<std::tuple<int, int>, ndtcpp::tuple_int_hash> new_empty;
+        for (const auto& pt: points_no_trans) {
+            const auto transformed = ndtcpp::transformPointCopy(odom, pt);
+            // occupied
+            const std::tuple<int, int> index = {
+                std::floor(transformed.x * voxel_size_inv_),
+                std::floor(transformed.y * voxel_size_inv_)
+            };
+            new_occupied[index].mean = transformed;
+            ++new_occupied[index].count;
+
+            // empty
+            const auto empty_cells = line(pos_voxel_x, pos_voxel_y, std::get<0>(index), std::get<1>(index));
+            for (const auto& c: empty_cells) {
+                if (new_occupied.count(c) == 0) {
+                    new_empty.emplace(c);
+                }
+            }
+        }
+
+        for (const auto& [index, voxel]: new_occupied) {
+            ++this->occupancy_[index].count;
+            this->occupancy_[index].mean.x += (voxel.mean.x - this->occupancy_[index].mean.x) / this->occupancy_[index].count;
+            this->occupancy_[index].mean.y += (voxel.mean.y - this->occupancy_[index].mean.y) / this->occupancy_[index].count;
+            this->occupancy_[index].occupancy += this->log_odds_;
+        }
+
+        for (const auto& index: new_empty) {
+            this->occupancy_[index].occupancy -= this->log_odds_;
+        }
+    }
+
+    bool updateStatus() {
+        bool updated = false;
+        for (auto& [index, voxel]: this->occupancy_) {
+            // const auto old_prob = voxel.probability;
+            int old_state = voxel.state;
+
+            voxel.probability = this->to_probability(voxel);
+            if (voxel.probability >= occupied_threshold_) {
+                voxel.state = STATE_OCCUPIED;
+            } else if (voxel.probability <= empty_threshold_) {
+                voxel.state = STATE_EMPTY;
+            }
+
+            if (old_state != voxel.state) {
+                updated = true;
+            }
+        }
+        return updated;
+    }
+
+    std::vector<ndtcpp::point2> to_point_cloud() {
+        std::vector<ndtcpp::point2> ret;
+        for (const auto&[index, voxel]: this->occupancy_) {
+            if (voxel.state == STATE_OCCUPIED) {
+                ret.push_back(voxel.mean);
+            }
+        }
+        return ret;
+    }
+
+    size_t saveAsSVG(const std::string& file_name) {
+        ndtcpp::writeSVGSetting setting;
+        setting.size = 250;
+        setting.point1_pt_color = "black";
+        setting.point2_pt_color = "white";
+
+        std::ofstream file(file_name);
+        if (!file.is_open()) {
+            std::cerr << "Cannot open file for writing." << std::endl;
+            return 0;
+        }
+        const int size = setting.size;
+        const float scale = setting.scale;
+        // const float ellipse_scale = setting.ellipse_scale;
+        const float offset = size / 2.0f;
+        // const std::string point1_ellipse_color = setting.point1_ellipse_color;
+        // const std::string point2_ellipse_color = setting.point2_ellipse_color;
+        const std::string point1_pt_color = setting.point1_pt_color;
+        const std::string point2_pt_color = setting.point2_pt_color;
+        // const float voxel_size = setting.voxel_size;
+        const std::string bg_color = "gray";
+
+        file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
+        file << "<rect width='" << size << "' height='" << size << "' x='0' y='0' fill='" << bg_color << "' stroke='#000' />\n";
+
+        size_t count = 0;
+        for (const auto& [index, voxel] : this->occupancy_) {
+            const auto prob = this->to_probability(voxel);
+            // const auto prob = voxel.probability;
+            if (prob >= this->occupied_threshold_) {
+                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << std::get<1>(index) + offset  << "' fill='" << point1_pt_color << "'/>\n";
+                ++count;
+            } else if (prob <= this->empty_threshold_) {
+                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << std::get<1>(index) + offset  << "' fill='" << point2_pt_color << "'/>\n";
+                ++count;
+            }
+        }
+        file << "</svg>\n";
+        file.close();
+        return count;
+
+    }
+};
 
 int main(void) {
     // std::string dataset_path = "dataset/corridor.lsc";
@@ -120,23 +316,23 @@ int main(void) {
 
     std::vector<double> durations_scan_matching;
     std::vector<double> durations_map_matching;
-    // std::vector<double> durations_mapping;
-    // std::vector<double> durations_svg;
+    std::vector<double> durations_mapping;
 
     const size_t start_index = 0;
-    const size_t N = dataset.size();
-    // const size_t N = std::min(static_cast<size_t>(130 + 2), dataset.size());
+    // const size_t N = dataset.size();
+    const size_t N = std::min(static_cast<size_t>(216 + 1), dataset.size());
     const float voxel_size = 0.2f;
     // const float voxel_size = 0.3f;
     const size_t voxel_min_count = 1;
     const size_t neighbor_n = 10;
 
+    const bool is_gicp = true;
+
+    const float map_register_error_threshold = is_gicp ? 100.0f : 1.0f;
     const float map_voxel_size = 0.4f;
     const size_t map_voxel_min_count = 1;
     const size_t map_neighbor_n = 6;
     const bool verbose = true;
-    const bool is_gicp = true;
-    const bool use_scan2scan = true;
 
     // debug
     ndtcpp::writeSVGSetting setting;
@@ -150,11 +346,24 @@ int main(void) {
     auto target_points_raw = Polar2::to_carts(dataset[start_index]);
     auto target_points = preprocess(target_points_raw, voxel_size, voxel_min_count, neighbor_n);
 
-    auto map_points = preprocess(target_points_raw, map_voxel_size, voxel_min_count, neighbor_n);
     const float keyframe_register_threshold_dist = 0.1f;
     const float keyframe_register_threshold_angle = (10.0f) * (M_PI / 180.0f);
     std::vector<ndtcpp::point2> keyframes;
     keyframes.push_back(std::get<0>(to_se2(odometry)));
+
+    VoxelMap map(voxel_size);
+    map.addPoints(target_points_raw, odometry);
+    map.updateStatus();
+    const auto map_count = map.saveAsSVG("slam_output/map_0.svg");
+    std::vector<ndtcpp::ndtpoint2> map_points;
+    {
+        auto map_cloud = map.to_point_cloud();
+        if (map_cloud.size() > 0) {
+            ndtcpp::compute_ndt_points(map_cloud, map_points);
+        } else {
+            map_points = target_points;
+        }
+    }
 
     for (size_t i = start_index + 1; i < N; ++i) {
 
@@ -164,7 +373,7 @@ int main(void) {
         ndtcpp::scan_matching_result scan2scan_result;
         auto trans_mat = ndtcpp::mat3x3::eye();
         /* scan-to-scan matching */
-        if (use_scan2scan) {
+        {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             {
@@ -190,11 +399,7 @@ int main(void) {
 
             {
                 // if (use_scan2scan && scan2scan_result.converged) {
-                if (use_scan2scan) {
-                    new_odom = odometry * trans_mat;
-                } else {
-                    new_odom = odometry;
-                }
+                new_odom = odometry * trans_mat;
 
                 if (is_gicp) {
                     scan2map_result = ndtcpp::gicp_scan_matching(new_odom, source_points, map_points, verbose);
@@ -209,8 +414,37 @@ int main(void) {
             durations_map_matching.push_back(microsec);
         }
 
+        bool map_update = false;
+        if (scan2map_result.converged && scan2map_result.error < map_register_error_threshold) {
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            odometry = new_odom;
+            target_points = source_points;
+
+            map_update = true;
+
+            map.addPoints(source_points_raw, odometry);
+            // update map_points
+            if (map.updateStatus()) {
+                auto cloud = map.to_point_cloud();
+                if (cloud.size() > source_points.size() * 0.8) {
+                    ndtcpp::compute_ndt_points(cloud, map_points);
+                }
+            }
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
+            durations_mapping.push_back(microsec);
+            std::cout << "REGISTER MAP" << std::endl;
+        }
+
         //debug
         {
+            if (map_update) {
+                const auto map_count = map.saveAsSVG("slam_output/map_" + std::to_string(i) + ".svg");
+                std::cout << " map[" << i << "]: " << map_count << std::endl;
+            }
+
             // const auto scan2scan_odom = odometry * trans_mat;
             // std::cout << std::asin(-scan2scan_odom.b) << ", " << scan2scan_odom.c << ", " << scan2scan_odom.f << std::endl;
             // // std::cout << "|" << scan2scan_odom.a << ", " << scan2scan_odom.b << ", " << scan2scan_odom.c << "|" << std::endl;
@@ -259,57 +493,6 @@ int main(void) {
             // }
             std::cout << output_path << std::endl;
         }
-
-        if (scan2map_result.converged && scan2map_result.error < 100.0f) {
-        // if (result.converged) {
-
-            odometry = new_odom;
-            target_points = source_points;
-            const auto& [pos, rot] = to_se2(odometry);
-
-            const float dx = pos.x - keyframes[keyframes.size() - 1].x;
-            const float dy = pos.y - keyframes[keyframes.size() - 1].y;
-            const float dist = std::sqrt(dx * dx + dy * dy);
-            if (dist >= keyframe_register_threshold_dist || std::fabs(rot) >= keyframe_register_threshold_angle) {
-                const ndtcpp::mat2x2 trans2x2 = {odometry.a, odometry.b, odometry.d, odometry.e};
-                const ndtcpp::mat2x2 trans2x2_T = {trans2x2.a, trans2x2.c, trans2x2.b, trans2x2.d};
-
-                // // 単純追加
-                // map_points.reserve(map_points.size() + source_points.size());
-                // for (auto& pt: source_points) {
-                //     auto mean = ndtcpp::transformPointCopy(odometry, pt.mean);
-                //     auto cov = trans2x2 * pt.cov * trans2x2_T;
-                //     map_points.push_back({mean, cov});
-                // }
-
-                // 単純追加しつつ、ダウンサンプリング
-                std::vector<ndtcpp::point2> points(map_points.size() + source_points.size());
-                for (const auto& pt: map_points) {
-                    points.push_back(pt.mean);
-                }
-                for (const auto& pt: source_points) {
-                    points.push_back(ndtcpp::transformPointCopy(odometry, pt.mean));
-                }
-                // const auto tmp_map = preprocess(points, map_voxel_size, 1, map_neighbor_n);
-                const auto tmp_map = preprocess(points, map_voxel_size, map_voxel_min_count, map_neighbor_n, 0.02f);
-                // const auto tmp_map = preprocess(points, map_voxel_size, map_voxel_min_count, map_neighbor_n, 0.05f);
-                // const auto tmp_map = preprocess(points, map_voxel_size, map_voxel_min_count, map_neighbor_n, 0.1f);
-
-                // // 点群数が増えていたらマップを更新
-                // if (tmp_map.size() >= map_points.size()) {
-                //     std::cout << "REGISTER KEYFRAME" << std::endl;
-                //     map_points = tmp_map;
-                //     keyframes.push_back(pos);
-                // }
-
-                // マップを更新
-                {
-                    map_points = tmp_map;
-                    keyframes.push_back(pos);
-                    std::cout << "REGISTER KEYFRAME" << std::endl;
-                }
-            }
-        }
     }
 
     {
@@ -319,6 +502,10 @@ int main(void) {
     {
         const double mean = std::accumulate(durations_map_matching.begin(), durations_map_matching.end(), 0.0) / durations_map_matching.size();
         std::cout << "SCAN-TO-MAP MATCHING MEAN: " << mean << " mill sec" << std::endl;
+    }
+    {
+        const double mean = std::accumulate(durations_mapping.begin(), durations_mapping.end(), 0.0) / durations_mapping.size();
+        std::cout << "MAPPING MEAN: " << mean << " mill sec" << std::endl;
     }
 
 }
