@@ -39,6 +39,8 @@ struct ndtpoint2 {
 struct scan_matching_result {
     bool converged = false;
     float error = std::numeric_limits<float>::max();
+    size_t iter = 0;
+    size_t correspondence_num = 0;
 };
 
 } // namespace ndtcpp
@@ -415,8 +417,8 @@ inline scan_matching_result ndt_scan_matching(
             if(target_distance > max_distance2){continue;}
 
             const auto identity_plus_cov = ndtcpp::mat3x3{
-                target_point.cov.a, target_point.cov.b, 0.0f,
-                target_point.cov.c, target_point.cov.d, 0.0f,
+                target_point.cov.a + 1.0f, target_point.cov.b + 1.0f, 0.0f,
+                target_point.cov.c + 1.0f, target_point.cov.d + 1.0f, 0.0f,
                 0.0f, 0.0f, 1.0f
             };
 
@@ -511,36 +513,45 @@ inline float calc_gicp_error(
 }
 }
 
-inline scan_matching_result gicp_scan_matching(
-    ndtcpp::mat3x3& trans_mat,
-    const std::vector<ndtpoint2>& source_points,
-    std::vector<ndtpoint2>& target_points, bool verbose = false
-) {
-    const size_t max_iter_num = 20;
-    const float max_correspondence_distance = 3.0f;
-    const float max_distance2 = max_correspondence_distance * max_correspondence_distance;
-    const size_t point_step = 10;
-    const float converged_error_th = 1e-4f;
-    const float converged_delta_th = 1e-4f;
+struct GICP_PARAMS {
+    size_t max_iter_num = 20;
+    float max_correspondence_distance = 0.5f;
+    // float max_correspondence_distance = 3.0f;
+    size_t point_step = 1;
+    size_t min_correspondence = 10;
+    float converged_error_th = 1e-4f;
+    float converged_delta_xy_th = 1e-4f;
+    float converged_delta_rot_th = 1e-6f;
 
     // for Levenberg-Marquardt
     // if max_inner_iter_num == 1 and lambda_factor == 1.0f -> Gauss-Newton
-    const size_t max_inner_iter_num = 10;
-    const float init_lambda = 1e-6f;
-    const float lambda_factor = 10.0f;
+    size_t max_inner_iter_num = 10;
+    float init_lambda = 1e-6f;
+    float lambda_factor = 10.0f;
+};
 
-    double lambda = init_lambda;
+inline scan_matching_result gicp_scan_matching(
+    ndtcpp::mat3x3& trans_mat,
+    const std::vector<ndtpoint2>& source_points,
+    std::vector<ndtpoint2>& target_points, bool verbose = false,
+    const GICP_PARAMS& param = GICP_PARAMS()
+) {
+    const float max_distance2 = param.max_correspondence_distance * param.max_correspondence_distance;
+
+    double lambda = param.init_lambda;
 
     bool is_converged = false;
     ndtcpp::point3 prev_delta;
     float min_error = std::numeric_limits<float>::max();
-    ndtcpp::mat3x3 min_trans_mat;
+    size_t min_correspondence_num = 0;
+    ndtcpp::mat3x3 min_trans_mat = trans_mat;
 
     const size_t target_points_size = target_points.size();
     const size_t source_points_size = source_points.size();
 
     kdtree::construct(target_points.begin(), target_points.end());
-    for(size_t iter = 0; iter < max_iter_num; iter++){
+    size_t iter = 0;
+    for(iter = 0; iter < param.max_iter_num; ++iter){
         ndtcpp::mat3x3 H_Mat {
             0.0f, 0.0f, 0.0f,
             0.0f, 0.0f, 0.0f,
@@ -554,7 +565,7 @@ inline scan_matching_result gicp_scan_matching(
 
         std::vector<std::tuple<ndtcpp::mat3x3, ndtcpp::point2, int>> IMs;
 
-        for(auto point_iter = 0; point_iter < source_points_size; point_iter += point_step){
+        for(size_t point_iter = 0; point_iter < source_points_size; point_iter += param.point_step){
             ndtpoint2 query_point = {
                 transformPointCopy(trans_mat, source_points[point_iter].mean),
                 {}
@@ -566,20 +577,20 @@ inline scan_matching_result gicp_scan_matching(
             if(target_distance > max_distance2){continue;}
 
             const auto identity_plus_target_cov = ndtcpp::mat3x3{
-                target_point.cov.a, target_point.cov.b, 0.0f,
-                target_point.cov.c, target_point.cov.d, 0.0f,
+                target_point.cov.a + 1.0f, target_point.cov.b + 1.0f, 0.0f,
+                target_point.cov.c + 1.0f, target_point.cov.d + 1.0f, 0.0f,
                 0.0f, 0.0f, 1.0f
             };
 
             const ndtcpp::mat2x2 trans_mat2x2 = {trans_mat.a, trans_mat.b, trans_mat.d, trans_mat.e};
             const auto trans_mat2x2_T = transpose(trans_mat2x2);
 
-            const auto transformed_query_cov = trans_mat2x2 * source_points[point_iter].cov * trans_mat2x2_T;
+            query_point.cov = trans_mat2x2 * source_points[point_iter].cov * trans_mat2x2_T;
             const auto identity_plus_query_cov = ndtcpp::mat3x3{
-                transformed_query_cov.a, transformed_query_cov.b, 0.0f,
-                transformed_query_cov.c, transformed_query_cov.d, 0.0f,
+                query_point.cov.a + 1.0f, query_point.cov.b + 1.0f, 0.0f,
+                query_point.cov.c + 1.0f, query_point.cov.d + 1.0f, 0.0f,
                 0.0f, 0.0f, 1.0f
-            };;
+            };
 
             // Information Matrix
             const ndtcpp::mat3x3 IM = inverse3x3Copy(identity_plus_target_cov) + \
@@ -608,16 +619,18 @@ inline scan_matching_result gicp_scan_matching(
             error += calc_gicp_error(query_point.mean, target_point.mean, IM);
             IMs.push_back({IM, target_point.mean, point_iter});
         }
-        if (error == 0.0f) {
+        if (IMs.size() < param.min_correspondence) {
             break;
         }
+        error /= IMs.size();
+
         b_Point.x *= -1.0f;
         b_Point.y *= -1.0f;
         b_Point.z *= -1.0f;
 
         ndtcpp::point3 delta;
         ndtcpp::point3 prev_delta_inner;
-        for (size_t inner_iter = 0; inner_iter < max_inner_iter_num; ++inner_iter) {
+        for (size_t inner_iter = 0; inner_iter < param.max_inner_iter_num; ++inner_iter) {
             // damping
             H_Mat.a += lambda;
             H_Mat.e += lambda;
@@ -626,7 +639,6 @@ inline scan_matching_result gicp_scan_matching(
             delta = solve3x3(H_Mat, b_Point);
             trans_mat = trans_mat * expmap(delta);
 
-            // const float new_error = multiplyPowPoint3(delta);
             float new_error = 0.0f;
             for (const auto& [IM, target, point_iter]: IMs) {
                 const auto trans_source = transformPointCopy(trans_mat, source_points[point_iter].mean);
@@ -635,22 +647,22 @@ inline scan_matching_result gicp_scan_matching(
             new_error /= IMs.size();
             if (new_error <= error) {
                 error = new_error;
-                if(error < converged_error_th){
+                if(error < param.converged_error_th){
                     is_converged = true;
                 }
-                lambda /= lambda_factor;
+                lambda /= param.lambda_factor;
                 break;
             }
             else {
-                lambda *= lambda_factor;
+                lambda *= param.lambda_factor;
             }
 
             if (inner_iter > 0) {
-                const float dx = prev_delta_inner.x - delta.x;
-                const float dy = prev_delta_inner.y - delta.y;
-                const float dz = prev_delta_inner.z - delta.z;
-                const auto d = std::max(std::max(std::fabs(dx), std::fabs(dy)), std::fabs(dz));
-                if (d < converged_delta_th) {
+                const float dx = std::fabs(prev_delta_inner.x - delta.x);
+                const float dy = std::fabs(prev_delta_inner.y - delta.y);
+                const float dz = std::fabs(prev_delta_inner.z - delta.z);
+                if (std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th) {
+                    is_converged = true;
                     break;
                 }
             }
@@ -662,21 +674,17 @@ inline scan_matching_result gicp_scan_matching(
         }
 
         if (iter > 0) {
-            const float dx = prev_delta.x - delta.x;
-            const float dy = prev_delta.y - delta.y;
-            const float dz = prev_delta.z - delta.z;
-            const auto d = std::max(std::max(std::fabs(dx), std::fabs(dy)), std::fabs(dz));
-            if (d < converged_delta_th) {
+            const float dx = std::fabs(prev_delta_inner.x - delta.x);
+            const float dy = std::fabs(prev_delta_inner.y - delta.y);
+            const float dz = std::fabs(prev_delta_inner.z - delta.z);
+            if (std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th) {
                 is_converged = true;
             }
         }
 
         if (is_converged) {
             min_error = error;
-            if (verbose) {
-                std::cout << "END GICP. ITER: " << iter;
-                std::cout << ", ERROR VALUE: " << error << std::endl;
-            }
+            min_correspondence_num = IMs.size();
             break;
         }
 
@@ -685,17 +693,25 @@ inline scan_matching_result gicp_scan_matching(
         if (min_error > error) {
             min_error = error;
             min_trans_mat = trans_mat;
+            min_correspondence_num = IMs.size();
         }
 
-        if (iter == max_iter_num - 1) {
-            if (verbose) {
-                std::cout << "END GICP NOT CONVERGED. ERROR VALUE: " << min_error << std::endl;
-            }
+        if (iter == param.max_iter_num - 1) {
             trans_mat = min_trans_mat;
         }
     }
+    if (verbose) {
+        if (is_converged) {
+            std::cout << "END GICP. ";
+        } else {
+            std::cout << "END GICP NOT CONVERGED. ";
+        }
+        std::cout << "ITER: " << iter;
+        std::cout << ", ERROR VALUE: " << min_error;
+        std::cout << ", CORRESPONDENCE: " << min_correspondence_num << "/" << source_points_size << std::endl;
+    }
 
-    return {is_converged, min_error};
+    return {is_converged, min_error, iter, min_correspondence_num};
 }
 
 //debug

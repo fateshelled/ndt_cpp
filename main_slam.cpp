@@ -74,7 +74,9 @@ inline std::tuple<ndtcpp::point2, float> to_se2(const ndtcpp::mat3x3& trans) {
 }
 
 inline std::vector<ndtcpp::ndtpoint2> preprocess(
-    std::vector<ndtcpp::point2>& points, float voxel_size, size_t voxel_min_count, size_t neighbor_n, float error_ellipse_area_thredhold=0.01f) {
+    std::vector<ndtcpp::point2>& points, float voxel_size, size_t voxel_min_count, size_t neighbor_n
+    // , float error_ellipse_area_thredhold=1.0f
+) {
 
     // ndtcpp::compute_ndt_points(dataset[0], target_points);
     // ndtcpp::compute_ndt_points_downsampling(dataset[0], target_points, voxel_size, voxel_min_count);
@@ -99,13 +101,13 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
         // const auto mean = ndtcpp::compute_mean(result_points);
         const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
 
-        const float a = 0.5f * (cov.a + cov.d);
-        const float b = (cov.a - cov.d);
-        const float c = 0.5f * std::sqrt(b * b + 4.0f * cov.b * cov.b);
-        const float u = a + c;
-        const float v = a - c;
-        // u * v * PI = 誤差楕円の大きさ
-        if (u * v * M_PI > error_ellipse_area_thredhold) continue;
+        // const float a = 0.5f * (cov.a + cov.d);
+        // const float b = (cov.a - cov.d);
+        // const float c = 0.5f * std::sqrt(b * b + 4.0f * cov.b * cov.b);
+        // const float u = a + c;
+        // const float v = a - c;
+        // // u * v * PI = 誤差楕円の大きさ
+        // if (u * v * M_PI > error_ellipse_area_thredhold) continue;
 
         result.push_back({downsampled[i], cov});
     }
@@ -123,7 +125,6 @@ inline std::vector<ndtcpp::ndtpoint2> remove_large_covariance_points(const std::
         const float c = 0.5f * std::sqrt(b * b + 4.0f * cov.b * cov.b);
         const float u = a + c;
         const float v = a - c;
-        // u * v * PI = 誤差楕円の大きさ
         if (u * v * M_PI > error_ellipse_area_thredhold) continue;
         ret.push_back(pt);
     }
@@ -193,6 +194,9 @@ public:
       occupied_threshold_(occupied_threshold), empty_threshold_(empty_threshold) {
     }
     ~VoxelMap(){}
+
+    void set_occupied_threshold(float value) {this->occupied_threshold_ = value;}
+    void set_empty_threshold(float value) {this->empty_threshold_ = value;}
 
     void addPoints(const std::vector<ndtcpp::point2> points_no_trans, const ndtcpp::mat3x3& odom) {
         const auto pos = std::get<0>(to_se2(odom));
@@ -320,18 +324,15 @@ int main(void) {
 
     const size_t start_index = 0;
     // const size_t N = dataset.size();
-    const size_t N = std::min(static_cast<size_t>(216 + 1), dataset.size());
+    const size_t N = std::min(static_cast<size_t>(220 + 1), dataset.size());
     const float voxel_size = 0.2f;
     // const float voxel_size = 0.3f;
     const size_t voxel_min_count = 1;
     const size_t neighbor_n = 10;
 
     const bool is_gicp = true;
-
-    const float map_register_error_threshold = is_gicp ? 100.0f : 1.0f;
-    const float map_voxel_size = 0.4f;
-    const size_t map_voxel_min_count = 1;
-    const size_t map_neighbor_n = 6;
+    const float scan_error_threshold = 20.0f;
+    const float map_register_error_threshold = 1000.0f;
     const bool verbose = true;
 
     // debug
@@ -354,104 +355,191 @@ int main(void) {
     VoxelMap map(voxel_size);
     map.addPoints(target_points_raw, odometry);
     map.updateStatus();
-    const auto map_count = map.saveAsSVG("slam_output/map_0.svg");
+    map.saveAsSVG("slam_output/map_0.svg");
+    map.set_occupied_threshold(0.8f);
+    map.set_empty_threshold(0.2f);
+
     std::vector<ndtcpp::ndtpoint2> map_points;
-    {
-        auto map_cloud = map.to_point_cloud();
-        if (map_cloud.size() > 0) {
-            ndtcpp::compute_ndt_points(map_cloud, map_points);
-        } else {
-            map_points = target_points;
-        }
-    }
+    map_points = target_points;
 
     for (size_t i = start_index + 1; i < N; ++i) {
+        std::cout << "[" << i << "]" << std::endl;
 
         auto source_points_raw = Polar2::to_carts(dataset[i]);
         auto source_points = preprocess(source_points_raw, voxel_size, voxel_min_count, neighbor_n);
 
         ndtcpp::scan_matching_result scan2scan_result;
-        auto trans_mat = ndtcpp::mat3x3::eye();
+        auto scan2scan_trans_mat = ndtcpp::mat3x3::eye();
         /* scan-to-scan matching */
         {
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            {
-                /* scan matching */
-                if (is_gicp) {
-                    scan2scan_result = ndtcpp::gicp_scan_matching(trans_mat, source_points, target_points, verbose);
-                } else {
-                    scan2scan_result = ndtcpp::ndt_scan_matching(trans_mat, source_points_raw, target_points, verbose);
-                }
+            /* scan matching */
+            if (is_gicp) {
+                scan2scan_result = ndtcpp::gicp_scan_matching(scan2scan_trans_mat, source_points, target_points, verbose);
+            } else {
+                scan2scan_result = ndtcpp::ndt_scan_matching(scan2scan_trans_mat, source_points_raw, target_points, verbose);
             }
 
             auto end_time = std::chrono::high_resolution_clock::now();
 
             auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
             durations_scan_matching.push_back(microsec);
-        }
 
-        /* scan-to-map matching */
-        ndtcpp::scan_matching_result scan2map_result;
-        ndtcpp::mat3x3 new_odom;
-        {
-            auto start_time = std::chrono::high_resolution_clock::now();
-
+            // debug
             {
-                // if (use_scan2scan && scan2scan_result.converged) {
-                new_odom = odometry * trans_mat;
-
+                std::string output_path = "slam_output/";
                 if (is_gicp) {
-                    scan2map_result = ndtcpp::gicp_scan_matching(new_odom, source_points, map_points, verbose);
+                    output_path += "gicp_scan2scan[" + std::to_string(i) + "]_";
+                    if (scan2scan_result.converged) output_path += "conv_";
+                    output_path += std::to_string(scan2scan_result.error);
+                    {
+                        auto source = source_points;
+                        for (auto& pt: source) {
+                            pt.mean = ndtcpp::transformPointCopy(scan2scan_trans_mat, pt.mean);
+                        }
+                        ndtcpp::writePointsToSVG(source, target_points, output_path + ".svg", setting);
+                    }
+                    {
+                        auto source = source_points;
+                        for (auto& pt: source) {
+                            pt.mean = ndtcpp::transformPointCopy(odometry * scan2scan_trans_mat, pt.mean);
+                        }
+                        ndtcpp::writePointsToSVG(source, map_points, output_path + "_map.svg", setting);
+                    }
                 } else {
-                    scan2map_result = ndtcpp::ndt_scan_matching(new_odom, source_points_raw, map_points, verbose);
+                    output_path += "ndt_scan2scan[" + std::to_string(i) + "]_";
+                    if (scan2scan_result.converged) output_path += "conv_";
+                    output_path += std::to_string(scan2scan_result.error) + ".svg";
+                    {
+                        auto source = source_points_raw;
+                        ndtcpp::transformPointsZeroCopy(scan2scan_trans_mat, source);
+                        ndtcpp::writePointsToSVG(source, target_points, output_path + ".svg", setting);
+                    }
+                    {
+                        auto source = source_points_raw;
+                        ndtcpp::transformPointsZeroCopy(odometry * scan2scan_trans_mat, source);
+                        ndtcpp::writePointsToSVG(source, map_points, output_path + "_map.svg", setting);
+                    }
                 }
             }
-
-            auto end_time = std::chrono::high_resolution_clock::now();
-
-            auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
-            durations_map_matching.push_back(microsec);
         }
+
+        target_points = source_points;
+        const ndtcpp::mat3x3 scan2scan_odom = odometry * scan2scan_trans_mat;
+
+        auto map_update_function = [&map, &map_points, &scan2scan_odom](const std::vector<ndtcpp::point2>& points, bool update_always){
+            map.addPoints(points, scan2scan_odom);
+            // map.addPoints(source_points_raw, scan2scan_odom);
+            bool updated = map.updateStatus();
+
+            if (update_always) updated = true;
+            // update map_points
+            // if (i == start_index + 9) {
+            if (updated) {
+                auto cloud = map.to_point_cloud();
+                ndtcpp::compute_ndt_points(cloud, map_points);
+                // map_points = remove_large_covariance_points(map_points);
+                // std::cout << "REGISTER MAP: " << cloud.size() << std::endl;
+            }
+            return updated;
+        };
 
         bool map_update = false;
-        if (scan2map_result.converged && scan2map_result.error < map_register_error_threshold) {
+        if (i < start_index + 20) {
+        // if (i < N) {
+            odometry = scan2scan_odom;
 
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            odometry = new_odom;
-            target_points = source_points;
+            std::vector<ndtcpp::point2> points;
+            std::transform(
+                source_points.begin(), source_points.end(),
+                std::back_insert_iterator<std::vector<ndtcpp::point2>>(points),
+                [](const ndtcpp::ndtpoint2& pt){return pt.mean;});
+            map_update = map_update_function(points, true);
+            // map_update = map_update_function(source_points_raw, true);
 
-            map_update = true;
-
-            map.addPoints(source_points_raw, odometry);
-            // update map_points
-            if (map.updateStatus()) {
-                auto cloud = map.to_point_cloud();
-                if (cloud.size() > source_points.size() * 0.8) {
-                    ndtcpp::compute_ndt_points(cloud, map_points);
-                }
-            }
             auto end_time = std::chrono::high_resolution_clock::now();
             auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
             durations_mapping.push_back(microsec);
-            std::cout << "REGISTER MAP" << std::endl;
+
+        } else if (scan2scan_result.error < scan_error_threshold) {
+
+            /* scan-to-map matching */
+            ndtcpp::scan_matching_result scan2map_result;
+            ndtcpp::mat3x3 scan2map_odom = scan2scan_odom;
+            // ndtcpp::mat3x3 scan2map_odom = odometry * scan2scan_trans_mat;
+            {
+                auto start_time = std::chrono::high_resolution_clock::now();
+                if (is_gicp) {
+                    const ndtcpp::GICP_PARAMS param = {.max_iter_num = 30};
+                    scan2map_result = ndtcpp::gicp_scan_matching(scan2map_odom, source_points, map_points, verbose, param);
+                } else {
+                    scan2map_result = ndtcpp::ndt_scan_matching(scan2map_odom, source_points_raw, map_points, verbose);
+                }
+                auto end_time = std::chrono::high_resolution_clock::now();
+
+                auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
+                durations_map_matching.push_back(microsec);
+
+                std::string output_path = "slam_output/";
+                if (is_gicp) {
+                    output_path += "gicp_scan2map[" + std::to_string(i) + "]_";
+                    if (scan2map_result.converged) output_path += "conv_";
+                    output_path += std::to_string(scan2map_result.error) + ".svg";
+                    auto source = source_points;
+                    for (auto& pt: source) {
+                        pt.mean = ndtcpp::transformPointCopy(scan2map_odom, pt.mean);
+                    }
+                    ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
+                } else {
+                    output_path += "ndt_scan2map[" + std::to_string(i) + "]_";
+                    if (scan2map_result.converged) output_path += "conv_";
+                    output_path += std::to_string(scan2map_result.error) + ".svg";
+                    auto source = source_points_raw;
+                    ndtcpp::transformPointsZeroCopy(scan2map_odom, source);
+                    ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
+                }
+            }
+
+            // mapping
+            // if (scan2map_result.error < map_register_error_threshold) {
+            if (scan2map_result.error < map_register_error_threshold * 0.5 || (scan2map_result.converged && scan2map_result.error < map_register_error_threshold)) {
+                odometry = scan2map_odom; // ?
+
+                auto start_time = std::chrono::high_resolution_clock::now();
+
+                std::vector<ndtcpp::point2> points;
+                std::transform(
+                    source_points.begin(), source_points.end(),
+                    std::back_insert_iterator<std::vector<ndtcpp::point2>>(points),
+                    [](const ndtcpp::ndtpoint2& pt){return pt.mean;});
+                map_update = map_update_function(points, false);
+                // map_update = map_update_function(source_points_raw, false);
+
+                auto end_time = std::chrono::high_resolution_clock::now();
+                auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
+                durations_mapping.push_back(microsec);
+            }
+            else {
+                odometry = scan2scan_odom;
+            }
         }
+
 
         //debug
         {
-            if (map_update) {
-                const auto map_count = map.saveAsSVG("slam_output/map_" + std::to_string(i) + ".svg");
-                std::cout << " map[" << i << "]: " << map_count << std::endl;
-            }
+            // if (map_update) {
+            //     const auto map_count = map.saveAsSVG("slam_output/map_" + std::to_string(i) + ".svg");
+            //     std::cout << " map[" << i << "]: " << map_count << std::endl;
+            // }
 
-            // const auto scan2scan_odom = odometry * trans_mat;
             // std::cout << std::asin(-scan2scan_odom.b) << ", " << scan2scan_odom.c << ", " << scan2scan_odom.f << std::endl;
             // // std::cout << "|" << scan2scan_odom.a << ", " << scan2scan_odom.b << ", " << scan2scan_odom.c << "|" << std::endl;
             // // std::cout << "|" << scan2scan_odom.d << ", " << scan2scan_odom.e << ", " << scan2scan_odom.f << "|" << std::endl;
             // // std::cout << "|" << scan2scan_odom.g << ", " << scan2scan_odom.h << ", " << scan2scan_odom.i << "|" << std::endl;
 
-            // const auto scan2map_odom = new_odom;
             // std::cout << std::asin(-scan2map_odom.b) << ", " << scan2map_odom.c << ", " << scan2map_odom.f << std::endl;
             // // std::cout << "|" << scan2map_odom.a << ", " << scan2map_odom.b << ", " << scan2map_odom.c << "|" << std::endl;
             // // std::cout << "|" << scan2map_odom.d << ", " << scan2map_odom.e << ", " << scan2map_odom.f << "|" << std::endl;
@@ -468,30 +556,6 @@ int main(void) {
             //     });
             //     mean.push_back(p);
             // }
-
-            std::string output_path = "slam_output/";
-            if (is_gicp) {
-                output_path += "gicp_" + std::to_string(i) + ".svg";
-            } else {
-                output_path += "ndt_" + std::to_string(i) + ".svg";
-            }
-            // ndtcpp::writePointsToSVG(source_transformed, map_points, output_path, setting);
-            // ndtcpp::writePointsToSVG(source_transformed, target_points, output_path, setting);
-            // ndtcpp::writePointsToSVG(source_points_raw, target_points, output_path, setting);
-            {
-                auto source = source_points_raw;
-                ndtcpp::transformPointsZeroCopy(odometry, source);
-                ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
-            }
-            // {
-            //     std::vector<ndtcpp::point2> map_pts;
-            //     std::vector<ndtcpp::point2> empty;
-            //     for (const auto& pt: map_points) {
-            //         map_pts.push_back(pt.mean);
-            //     }
-            //     ndtcpp::writePointsToSVG(map_pts, empty, output_path);
-            // }
-            std::cout << output_path << std::endl;
         }
     }
 
