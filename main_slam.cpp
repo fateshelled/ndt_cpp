@@ -62,6 +62,7 @@ std::vector<std::vector<Polar2>> load_dataset(const std::string& file_path, floa
                 if (range <= min_dist || max_dist < range) continue;
                 points.push_back({angle, range});
             }
+            std::sort(points.begin(), points.end(), [](const Polar2& a, const Polar2& b) { return a.angle < b.angle; });
             dataset.push_back(points);
         }
     }
@@ -73,29 +74,84 @@ inline std::tuple<ndtcpp::point2, float> to_se2(const ndtcpp::mat3x3& trans) {
     return {{trans.c, trans.f}, std::asin(trans.c)};
 }
 
+
+struct InterporationParam
+{
+    bool enable = true;
+    float point_interval = 0.03f;
+    float point_far_threshold = 0.3f;
+};
+
 inline std::vector<ndtcpp::ndtpoint2> preprocess(
-    std::vector<ndtcpp::point2>& points, float voxel_size, size_t voxel_min_count, size_t neighbor_n
+    std::vector<Polar2>& points, float voxel_size, size_t voxel_min_count, size_t neighbor_n,
+    const InterporationParam& interporation_param = InterporationParam()
     // , float error_ellipse_area_thredhold=1.0f
 ) {
 
     // ndtcpp::compute_ndt_points(dataset[0], target_points);
     // ndtcpp::compute_ndt_points_downsampling(dataset[0], target_points, voxel_size, voxel_min_count);
+    auto points_carts = Polar2::to_carts(points);
 
-    auto downsampled = std::vector<ndtcpp::point2>();
-    ndtcpp::compute_voxel_downsampling(points, downsampled, voxel_size, voxel_min_count);
+    if (interporation_param.enable) {
+        std::vector<ndtcpp::point2> eq_interval_points;
+        {
+            ndtcpp::point2& pt0 = points_carts.front();
+            for (size_t i = 1; i < points_carts.size(); ++i) {
+                const auto dx = pt0.x - points_carts[i].x;
+                const auto dy = pt0.y - points_carts[i].y;
+                const auto dist = dx * dx + dy * dy;
+                if (dist < interporation_param.point_interval) {
+                    continue;
+                }
+                if (dist > interporation_param.point_far_threshold) {
+                    eq_interval_points.push_back(points_carts[i]);
+                    pt0 = points_carts[i];
+                    continue;
+                }
+                const float ratio = interporation_param.point_interval / dist;
+                ndtcpp::point2 new_point = {
+                    ratio * dx + points_carts[i].x,
+                    ratio * dy + points_carts[i].y,
+                };
+                eq_interval_points.push_back(new_point);
 
-    auto result = std::vector<ndtcpp::ndtpoint2>();
+                pt0 = new_point;
+            }
+            // {
+            //     const auto dx = pt0.x - points_carts.back().x;
+            //     const auto dy = pt0.y - points_carts.back().y;
+            //     const auto dist = dx * dx + dy * dy;
+            //     if (dist >= point_interval && dist <= point_far_threshold) {
+            //         const float ratio = point_interval / dist;
+            //         ndtcpp::point2 new_point = {
+            //             ratio * dx + points_carts.back().x,
+            //             ratio * dy + points_carts.back().y,
+            //         };
+            //         eq_interval_points.push_back(new_point);
+            //     }
+            // }
+        }
+
+        points_carts = eq_interval_points;
+    }
+
+    std::vector<ndtcpp::point2> downsampled;
+    ndtcpp::compute_voxel_downsampling(points_carts, downsampled, voxel_size, voxel_min_count);
+
+    // ndtcpp::writePointsToSVG(points_carts, downsampled, "slam_output/interpolate_ds.svg");
+
+    std::vector<ndtcpp::ndtpoint2> result;
     const auto point_size = downsampled.size();
     result.reserve(point_size);
 
-    kdtree::construct(points.begin(), points.end());
+    kdtree::construct(points_carts.begin(), points_carts.end());
 
     std::vector<ndtcpp::point2> result_points(neighbor_n);
     std::vector<float> result_distances(neighbor_n);
 
     for(std::size_t i = 0; i < point_size; i++) {
         kdtree::search_knn(
-            points.begin(), points.end(),
+            points_carts.begin(), points_carts.end(),
             result_points.begin(), result_distances.begin(), neighbor_n,
             downsampled[i]);
         // const auto mean = ndtcpp::compute_mean(result_points);
@@ -344,8 +400,8 @@ int main(void) {
     ndtcpp::mat3x3 odometry = init_pose;
     std::vector<ndtcpp::mat3x3> odom_trajectory;
 
-    auto target_points_raw = Polar2::to_carts(dataset[start_index]);
-    auto target_points = preprocess(target_points_raw, voxel_size, voxel_min_count, neighbor_n);
+    const auto target_points_raw = Polar2::to_carts(dataset[start_index]);
+    auto target_points = preprocess(dataset[start_index], voxel_size, voxel_min_count, neighbor_n);
 
     const float keyframe_register_threshold_dist = 0.1f;
     const float keyframe_register_threshold_angle = (10.0f) * (M_PI / 180.0f);
@@ -359,14 +415,16 @@ int main(void) {
     map.set_occupied_threshold(0.8f);
     map.set_empty_threshold(0.2f);
 
+    std::vector<ndtcpp::point2> simple_map_points; // debug
     std::vector<ndtcpp::ndtpoint2> map_points;
     map_points = target_points;
+
 
     for (size_t i = start_index + 1; i < N; ++i) {
         std::cout << "[" << i << "]" << std::endl;
 
         auto source_points_raw = Polar2::to_carts(dataset[i]);
-        auto source_points = preprocess(source_points_raw, voxel_size, voxel_min_count, neighbor_n);
+        auto source_points = preprocess(dataset[i], voxel_size, voxel_min_count, neighbor_n);
 
         ndtcpp::scan_matching_result scan2scan_result;
         auto scan2scan_trans_mat = ndtcpp::mat3x3::eye();
@@ -428,14 +486,13 @@ int main(void) {
         target_points = source_points;
         const ndtcpp::mat3x3 scan2scan_odom = odometry * scan2scan_trans_mat;
 
-        auto map_update_function = [&map, &map_points, &scan2scan_odom](const std::vector<ndtcpp::point2>& points, bool update_always){
-            map.addPoints(points, scan2scan_odom);
+        auto map_update_function = [&map, &map_points](const std::vector<ndtcpp::point2>& points_raw, const ndtcpp::mat3x3& odom, bool update_always){
+            map.addPoints(points_raw, odom);
             // map.addPoints(source_points_raw, scan2scan_odom);
             bool updated = map.updateStatus();
 
-            if (update_always) updated = true;
             // update map_points
-            // if (i == start_index + 9) {
+            if (update_always) updated = true;
             if (updated) {
                 auto cloud = map.to_point_cloud();
                 ndtcpp::compute_ndt_points(cloud, map_points);
@@ -457,8 +514,8 @@ int main(void) {
                 source_points.begin(), source_points.end(),
                 std::back_insert_iterator<std::vector<ndtcpp::point2>>(points),
                 [](const ndtcpp::ndtpoint2& pt){return pt.mean;});
-            map_update = map_update_function(points, true);
-            // map_update = map_update_function(source_points_raw, true);
+            map_update = map_update_function(points, scan2scan_odom, true);
+            // map_update = map_update_function(source_points_raw, scan2scan_odom, true);
 
             auto end_time = std::chrono::high_resolution_clock::now();
             auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
@@ -515,8 +572,8 @@ int main(void) {
                     source_points.begin(), source_points.end(),
                     std::back_insert_iterator<std::vector<ndtcpp::point2>>(points),
                     [](const ndtcpp::ndtpoint2& pt){return pt.mean;});
-                map_update = map_update_function(points, false);
-                // map_update = map_update_function(source_points_raw, false);
+                map_update = map_update_function(points, odometry, false);
+                // map_update = map_update_function(source_points_raw, odometry, false);
 
                 auto end_time = std::chrono::high_resolution_clock::now();
                 auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
@@ -530,6 +587,14 @@ int main(void) {
 
         //debug
         {
+            std::vector<ndtcpp::point2> cur_points;
+            for (const auto& pt: source_points_raw) {
+                const auto transformed = ndtcpp::transformPointCopy(odometry, pt);
+                cur_points.push_back(transformed);
+                simple_map_points.push_back(transformed);
+            }
+            ndtcpp::writePointsToSVG(simple_map_points, cur_points, "slam_output/simple_map_[" + std::to_string(i) + "].svg", setting);
+
             // if (map_update) {
             //     const auto map_count = map.saveAsSVG("slam_output/map_" + std::to_string(i) + ".svg");
             //     std::cout << " map[" << i << "]: " << map_count << std::endl;
