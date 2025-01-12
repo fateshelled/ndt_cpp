@@ -59,7 +59,7 @@ std::vector<std::vector<Polar2>> load_dataset(const std::string& file_path, floa
             for (int i = 0; i < point_num; ++i) {
                 iss >> angle >> range;
                 angle *= (M_PI / 180.0f);
-                if (range <= min_dist || max_dist < range) continue;
+                if (range <= min_dist || max_dist <= range) continue;
                 points.push_back({angle, range});
             }
             std::sort(points.begin(), points.end(), [](const Polar2& a, const Polar2& b) { return a.angle < b.angle; });
@@ -95,12 +95,14 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
     if (interporation_param.enable) {
         std::vector<ndtcpp::point2> eq_interval_points;
         {
+            const float interval_squared = interporation_param.point_interval * interporation_param.point_interval;
             ndtcpp::point2& pt0 = points_carts.front();
+            eq_interval_points.push_back(pt0);
             for (size_t i = 1; i < points_carts.size(); ++i) {
                 const auto dx = pt0.x - points_carts[i].x;
                 const auto dy = pt0.y - points_carts[i].y;
                 const auto dist = dx * dx + dy * dy;
-                if (dist < interporation_param.point_interval) {
+                if (dist < interval_squared) {
                     continue;
                 }
                 if (dist > interporation_param.point_far_threshold) {
@@ -108,8 +110,8 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
                     pt0 = points_carts[i];
                     continue;
                 }
-                const float ratio = interporation_param.point_interval / dist;
-                ndtcpp::point2 new_point = {
+                const float ratio = interporation_param.point_interval / std::sqrt(dist);
+                const ndtcpp::point2 new_point = {
                     ratio * dx + points_carts[i].x,
                     ratio * dy + points_carts[i].y,
                 };
@@ -117,19 +119,6 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
 
                 pt0 = new_point;
             }
-            // {
-            //     const auto dx = pt0.x - points_carts.back().x;
-            //     const auto dy = pt0.y - points_carts.back().y;
-            //     const auto dist = dx * dx + dy * dy;
-            //     if (dist >= point_interval && dist <= point_far_threshold) {
-            //         const float ratio = point_interval / dist;
-            //         ndtcpp::point2 new_point = {
-            //             ratio * dx + points_carts.back().x,
-            //             ratio * dy + points_carts.back().y,
-            //         };
-            //         eq_interval_points.push_back(new_point);
-            //     }
-            // }
         }
 
         points_carts = eq_interval_points;
@@ -347,15 +336,17 @@ public:
         file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
         file << "<rect width='" << size << "' height='" << size << "' x='0' y='0' fill='" << bg_color << "' stroke='#000' />\n";
 
+        // const int sign = 1; // left hand coord
+        const int sign = -1; // right hand coord
         size_t count = 0;
         for (const auto& [index, voxel] : this->occupancy_) {
             const auto prob = this->to_probability(voxel);
             // const auto prob = voxel.probability;
             if (prob >= this->occupied_threshold_) {
-                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << std::get<1>(index) + offset  << "' fill='" << point1_pt_color << "'/>\n";
+                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << sign * std::get<1>(index) + offset  << "' fill='" << point1_pt_color << "'/>\n";
                 ++count;
             } else if (prob <= this->empty_threshold_) {
-                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << std::get<1>(index) + offset  << "' fill='" << point2_pt_color << "'/>\n";
+                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << sign * std::get<1>(index) + offset  << "' fill='" << point2_pt_color << "'/>\n";
                 ++count;
             }
         }
@@ -374,19 +365,23 @@ int main(void) {
     const float max_dist = 20.0f;
     auto dataset = load_dataset(dataset_path, min_dist, max_dist);
 
+    std::vector<double> durations_preprocess;
     std::vector<double> durations_scan_matching;
     std::vector<double> durations_map_matching;
     std::vector<double> durations_mapping;
 
     const size_t start_index = 0;
+    const size_t warmup_num = 20;
     // const size_t N = dataset.size();
-    const size_t N = std::min(static_cast<size_t>(220 + 1), dataset.size());
+    const size_t N = std::min(static_cast<size_t>(300 + 1), dataset.size());
     const float voxel_size = 0.2f;
     // const float voxel_size = 0.3f;
     const size_t voxel_min_count = 1;
     const size_t neighbor_n = 10;
 
     const bool is_gicp = true;
+    // const float scan_error_threshold = 0.1f;
+    // const float map_register_error_threshold = 0.4f;
     const float scan_error_threshold = 20.0f;
     const float map_register_error_threshold = 1000.0f;
     const bool verbose = true;
@@ -394,7 +389,7 @@ int main(void) {
     // debug
     ndtcpp::writeSVGSetting setting;
     setting.voxel_size = voxel_size;
-    setting.size = 200;
+    setting.size = 500;
 
     const auto init_pose = ndtcpp::mat3x3::eye();
     ndtcpp::mat3x3 odometry = init_pose;
@@ -403,17 +398,15 @@ int main(void) {
     const auto target_points_raw = Polar2::to_carts(dataset[start_index]);
     auto target_points = preprocess(dataset[start_index], voxel_size, voxel_min_count, neighbor_n);
 
-    const float keyframe_register_threshold_dist = 0.1f;
-    const float keyframe_register_threshold_angle = (10.0f) * (M_PI / 180.0f);
-    std::vector<ndtcpp::point2> keyframes;
-    keyframes.push_back(std::get<0>(to_se2(odometry)));
-
     VoxelMap map(voxel_size);
+    map.set_occupied_threshold(0.7f);
+    map.set_empty_threshold(0.3f);
     map.addPoints(target_points_raw, odometry);
     map.updateStatus();
-    map.saveAsSVG("slam_output/map_0.svg");
-    map.set_occupied_threshold(0.8f);
-    map.set_empty_threshold(0.2f);
+    ndtcpp::GICP_PARAMS map_gicp_param;
+    map_gicp_param.max_iter_num = 30;
+    // map_gicp_param.max_correspondence_distance *= 0.5f;
+    // map_gicp_param.min_correspondence = 20;
 
     std::vector<ndtcpp::point2> simple_map_points; // debug
     std::vector<ndtcpp::ndtpoint2> map_points;
@@ -423,8 +416,18 @@ int main(void) {
     for (size_t i = start_index + 1; i < N; ++i) {
         std::cout << "[" << i << "]" << std::endl;
 
-        auto source_points_raw = Polar2::to_carts(dataset[i]);
-        auto source_points = preprocess(dataset[i], voxel_size, voxel_min_count, neighbor_n);
+        std::vector<ndtcpp::point2> source_points_raw;
+        std::vector<ndtcpp::ndtpoint2> source_points;
+        {
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            source_points_raw = Polar2::to_carts(dataset[i]);
+            source_points = preprocess(dataset[i], voxel_size, voxel_min_count, neighbor_n);
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
+            durations_preprocess.push_back(microsec);
+        }
 
         ndtcpp::scan_matching_result scan2scan_result;
         auto scan2scan_trans_mat = ndtcpp::mat3x3::eye();
@@ -503,7 +506,7 @@ int main(void) {
         };
 
         bool map_update = false;
-        if (i < start_index + 20) {
+        if (i < start_index + warmup_num) {
         // if (i < N) {
             odometry = scan2scan_odom;
 
@@ -530,8 +533,7 @@ int main(void) {
             {
                 auto start_time = std::chrono::high_resolution_clock::now();
                 if (is_gicp) {
-                    const ndtcpp::GICP_PARAMS param = {.max_iter_num = 30};
-                    scan2map_result = ndtcpp::gicp_scan_matching(scan2map_odom, source_points, map_points, verbose, param);
+                    scan2map_result = ndtcpp::gicp_scan_matching(scan2map_odom, source_points, map_points, verbose, map_gicp_param);
                 } else {
                     scan2map_result = ndtcpp::ndt_scan_matching(scan2map_odom, source_points_raw, map_points, verbose);
                 }
@@ -540,29 +542,32 @@ int main(void) {
                 auto microsec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
                 durations_map_matching.push_back(microsec);
 
-                std::string output_path = "slam_output/";
-                if (is_gicp) {
-                    output_path += "gicp_scan2map[" + std::to_string(i) + "]_";
-                    if (scan2map_result.converged) output_path += "conv_";
-                    output_path += std::to_string(scan2map_result.error) + ".svg";
-                    auto source = source_points;
-                    for (auto& pt: source) {
-                        pt.mean = ndtcpp::transformPointCopy(scan2map_odom, pt.mean);
+                // debug
+                {
+                    std::string output_path = "slam_output/";
+                    if (is_gicp) {
+                        output_path += "gicp_scan2map[" + std::to_string(i) + "]_";
+                        if (scan2map_result.converged) output_path += "conv_";
+                        output_path += std::to_string(scan2map_result.error) + ".svg";
+                        auto source = source_points;
+                        for (auto& pt: source) {
+                            pt.mean = ndtcpp::transformPointCopy(scan2map_odom, pt.mean);
+                        }
+                        ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
+                    } else {
+                        output_path += "ndt_scan2map[" + std::to_string(i) + "]_";
+                        if (scan2map_result.converged) output_path += "conv_";
+                        output_path += std::to_string(scan2map_result.error) + ".svg";
+                        auto source = source_points_raw;
+                        ndtcpp::transformPointsZeroCopy(scan2map_odom, source);
+                        ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
                     }
-                    ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
-                } else {
-                    output_path += "ndt_scan2map[" + std::to_string(i) + "]_";
-                    if (scan2map_result.converged) output_path += "conv_";
-                    output_path += std::to_string(scan2map_result.error) + ".svg";
-                    auto source = source_points_raw;
-                    ndtcpp::transformPointsZeroCopy(scan2map_odom, source);
-                    ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
                 }
             }
 
             // mapping
-            // if (scan2map_result.error < map_register_error_threshold) {
-            if (scan2map_result.error < map_register_error_threshold * 0.5 || (scan2map_result.converged && scan2map_result.error < map_register_error_threshold)) {
+            // if (scan2map_result.error < map_register_error_threshold || (scan2map_result.converged && scan2map_result.error < map_register_error_threshold)) {
+            if (scan2map_result.error < map_register_error_threshold) {
                 odometry = scan2map_odom; // ?
 
                 auto start_time = std::chrono::high_resolution_clock::now();
@@ -594,6 +599,7 @@ int main(void) {
                 simple_map_points.push_back(transformed);
             }
             ndtcpp::writePointsToSVG(simple_map_points, cur_points, "slam_output/simple_map_[" + std::to_string(i) + "].svg", setting);
+            map.saveAsSVG("slam_output/map_only[" + std::to_string(i) + "].svg");
 
             // if (map_update) {
             //     const auto map_count = map.saveAsSVG("slam_output/map_" + std::to_string(i) + ".svg");
@@ -624,6 +630,10 @@ int main(void) {
         }
     }
 
+    {
+        const double mean = std::accumulate(durations_preprocess.begin(), durations_preprocess.end(), 0.0) / durations_preprocess.size();
+        std::cout << "PREPROCESS MEAN: " << mean << " mill sec" << std::endl;
+    }
     {
         const double mean = std::accumulate(durations_scan_matching.begin(), durations_scan_matching.end(), 0.0) / durations_scan_matching.size();
         std::cout << "SCAN-TO-SCAN MATCHING MEAN: " << mean << " mill sec" << std::endl;
