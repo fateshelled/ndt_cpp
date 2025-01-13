@@ -19,14 +19,26 @@ namespace ndtcpp
 {
     struct point2{
         float x, y;
+        static point2 zeros() {
+            return {0.f, 0.f};
+        }
     };
     struct point3{
         float x, y, z;
+        static point3 zeros() {
+            return {0.f, 0.f, 0.f};
+        }
     };
 
     struct mat2x2{
         float a, b;
         float c, d;
+        static mat2x2 eye() {
+            return {1.f, 0.f, 0.f, 1.f};
+        }
+        static mat2x2 zeros() {
+            return {0.f, 0.f, 0.f, 0.f};
+        }
     };
 
     struct mat3x3{
@@ -35,6 +47,9 @@ namespace ndtcpp
         float g, h, i;
         static mat3x3 eye() {
             return {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+        }
+        static mat3x3 zeros() {
+            return {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
         }
     };
 } // namespace ndtcpp

@@ -36,6 +36,23 @@ namespace ndtcpp
         return result;
     }
 
+    inline auto operator*(const float a, const mat3x3& mat)
+    {
+        mat3x3 result;
+        result.a = a * mat.a;
+        result.b = a * mat.b;
+        result.c = a * mat.c;
+
+        result.d = a * mat.d;
+        result.e = a * mat.e;
+        result.f = a * mat.f;
+
+        result.g = a * mat.g;
+        result.h = a * mat.h;
+        result.i = a * mat.i;
+        return result;
+    }
+
     inline auto operator*(const mat2x2& mat1, const mat2x2& mat2)
     {
         mat2x2 result;
@@ -45,6 +62,17 @@ namespace ndtcpp
         result.c = mat1.c * mat2.a + mat1.d * mat2.c;
         result.d = mat1.c * mat2.b + mat1.d * mat2.d;
 
+        return result;
+    }
+
+    inline auto operator*(const float a, const mat2x2& mat)
+    {
+        mat2x2 result;
+        result.a = a * mat.a;
+        result.b = a * mat.b;
+
+        result.c = a * mat.c;
+        result.d = a * mat.d;
         return result;
     }
 
@@ -94,6 +122,19 @@ namespace ndtcpp
         point1.x += point2.x;
         point1.y += point2.y;
         point1.z += point2.z;
+    }
+
+    inline auto operator*(const float a, const ndtcpp::point3& point){
+        ndtcpp::point3 result;
+        result.x = a * point.x;
+        result.y = a * point.y;
+        result.z = a * point.z;
+        return result;
+    }
+    inline auto operator*=(ndtcpp::point3& point, const float a){
+        point.x *= a;
+        point.y *= a;
+        point.z *= a;
     }
 } // namespace ndtcpp
 

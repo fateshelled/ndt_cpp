@@ -398,15 +398,8 @@ inline scan_matching_result ndt_scan_matching(
 
     kdtree::construct(target_points.begin(), target_points.end());
     for(size_t iter = 0; iter < max_iter_num; iter++){
-        ndtcpp::mat3x3 H_Mat {
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f
-        };
-
-        ndtcpp::point3 b_Point {
-            0.0f, 0.0f, 0.0f
-        };
+        auto H_Mat = ndtcpp::mat3x3::zeros();
+        auto b_Point = ndtcpp::point3::zeros();
 
         for(auto point_iter = 0; point_iter < source_points_size; point_iter += point_step){
             ndtpoint2 query_point = {transformPointCopy(trans_mat, source_points[point_iter]), {}};
@@ -446,14 +439,10 @@ inline scan_matching_result ndt_scan_matching(
             b_Point += (mat_J_T * (target_cov_inv * error));
 
         }
-        b_Point.x *= -1.0f;
-        b_Point.y *= -1.0f;
-        b_Point.z *= -1.0f;
+        b_Point *= -1.0f;
 
         // more stable solve
-        H_Mat.a += 1e-6;
-        H_Mat.e += 1e-6;
-        H_Mat.i += 1e-6;
+        H_Mat += 1e-6f * ndtcpp::mat3x3::eye();
 
         const ndtcpp::point3 delta = solve3x3(H_Mat, b_Point);
         trans_mat = trans_mat * expmap(delta);
@@ -538,7 +527,7 @@ inline scan_matching_result gicp_scan_matching(
 ) {
     const float max_distance2 = param.max_correspondence_distance * param.max_correspondence_distance;
 
-    double lambda = param.init_lambda;
+    float lambda = param.init_lambda;
 
     bool is_converged = false;
     ndtcpp::point3 prev_delta;
@@ -552,15 +541,8 @@ inline scan_matching_result gicp_scan_matching(
     kdtree::construct(target_points.begin(), target_points.end());
     size_t iter = 0;
     for(iter = 0; iter < param.max_iter_num; ++iter){
-        ndtcpp::mat3x3 H_Mat {
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f
-        };
-
-        ndtcpp::point3 b_Point {
-            0.0f, 0.0f, 0.0f
-        };
+        auto H_Mat = ndtcpp::mat3x3::zeros();
+        auto b_Point = ndtcpp::point3::zeros();
         float error = 0.0f;
 
         std::vector<std::tuple<ndtcpp::mat3x3, ndtcpp::point2, int>> IMs;
@@ -624,19 +606,15 @@ inline scan_matching_result gicp_scan_matching(
         }
         error /= IMs.size();
 
-        b_Point.x *= -1.0f;
-        b_Point.y *= -1.0f;
-        b_Point.z *= -1.0f;
+        b_Point *= -1.0f;
 
         ndtcpp::point3 delta;
         ndtcpp::point3 prev_delta_inner;
         for (size_t inner_iter = 0; inner_iter < param.max_inner_iter_num; ++inner_iter) {
             // damping
-            H_Mat.a += lambda;
-            H_Mat.e += lambda;
-            H_Mat.i += lambda;
+            auto H = H_Mat + lambda * ndtcpp::mat3x3::eye();
 
-            delta = solve3x3(H_Mat, b_Point);
+            delta = solve3x3(H, b_Point);
             trans_mat = trans_mat * expmap(delta);
 
             float new_error = 0.0f;
