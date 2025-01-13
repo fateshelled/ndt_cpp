@@ -702,6 +702,7 @@ struct writeSVGSetting {
     std::string point2_ellipse_color = "green";
     std::string point1_pt_color = "red";
     std::string point2_pt_color = "darkgreen";
+    bool flip_y = false;
 };
 
 inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const std::vector<ndtcpp::point2>& point_2, const std::string& file_name, writeSVGSetting setting={}) {
@@ -719,16 +720,16 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     // const float voxel_size = setting.voxel_size;
+    const float sign = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"500\" height=\"500\">\n";
     file << "<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n";
-
     for (const auto& point : point_1) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
+        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << point.y * scale + offset << "' r='1' fill='" << point2_pt_color << "' />\n";
+        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
     file << "</svg>\n";
@@ -751,6 +752,7 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     const float voxel_size = setting.voxel_size;
+    const float sign = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
@@ -768,7 +770,7 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     file << "</g>\n";
 
     for (const auto& point : point_1) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
+        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
@@ -784,7 +786,7 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
         const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
         const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
@@ -807,6 +809,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     const float voxel_size = setting.voxel_size;
+    const float sign = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
@@ -836,8 +839,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
         const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
         const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point1_pt_color << "' />\n";
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
@@ -853,8 +856,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
         const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
         const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point2_pt_color << "' />\n";
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
     file << "</svg>\n";
