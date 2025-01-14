@@ -136,6 +136,28 @@ namespace ndtcpp
         point.y *= a;
         point.z *= a;
     }
+
+    std::ostream& operator<<(std::ostream& os, const ndtcpp::point2& pt) {
+        os << pt.x << " " << pt.y;
+        return os;
+    }
+
+    std::ostream& operator<<(std::ostream& os, const ndtcpp::point3& pt) {
+        os << pt.x << " " << pt.y << " " << pt.z;
+        return os;
+    }
+
+    std::ostream& operator<<(std::ostream& os, const ndtcpp::mat2x2& mat) {
+        os << mat.a << " " << mat.b << "\n" << mat.c << " " << mat.d;
+        return os;
+    }
+
+    std::ostream& operator<<(std::ostream& os, const ndtcpp::mat3x3& mat) {
+        os << mat.a << " " << mat.b << " " << mat.c  << "\n" \
+           << mat.d << " " << mat.e << " " << mat.f  << "\n" \
+           << mat.g << " " << mat.h << " " << mat.i;
+        return os;
+    }
 } // namespace ndtcpp
 
 #endif // NDTCPP_MATRIX_UTIL_HPP_
