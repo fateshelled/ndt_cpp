@@ -364,7 +364,7 @@ int main(void) {
     // std::string dataset_path = "dataset/corridor.lsc";
     std::string dataset_path = "dataset/hall.lsc";
 
-    const float min_dist = 0.01f;
+    const float min_dist = 0.3f;
     const float max_dist = 20.0f;
     auto dataset = load_dataset(dataset_path, min_dist, max_dist);
 
@@ -561,7 +561,8 @@ int main(void) {
                             pt.mean = ndtcpp::transformPointCopy(scan2map_odom, pt.mean);
                             pt.cov = trans2x2 * pt.cov * trans2x2_T;
                         }
-                        ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
+                        // ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
+                        ndtcpp::writePointsToSVG(source, map_points, scan2map_odom, scan2map_result.H, output_path, setting);
                     } else {
                         output_path += "ndt_scan2map[" + std::to_string(i) + "]_";
                         if (scan2map_result.converged) output_path += "conv_";

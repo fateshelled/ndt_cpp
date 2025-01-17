@@ -41,6 +41,8 @@ struct scan_matching_result {
     float error = std::numeric_limits<float>::max();
     size_t iter = 0;
     size_t correspondence_num = 0;
+    ndtcpp::mat3x3 H = ndtcpp::mat3x3::zeros();
+    ndtcpp::point3 b = ndtcpp::point3::zeros();
 };
 
 } // namespace ndtcpp
@@ -397,7 +399,8 @@ inline scan_matching_result ndt_scan_matching(
     ndtcpp::mat3x3 min_trans_mat;
 
     kdtree::construct(target_points.begin(), target_points.end());
-    for(size_t iter = 0; iter < max_iter_num; iter++){
+    size_t iter = 0;
+    for(iter = 0; iter < max_iter_num; iter++){
         auto H_Mat = ndtcpp::mat3x3::zeros();
         auto b_Point = ndtcpp::point3::zeros();
 
@@ -441,10 +444,7 @@ inline scan_matching_result ndt_scan_matching(
         }
         b_Point *= -1.0f;
 
-        // more stable solve
-        H_Mat += 1e-6f * ndtcpp::mat3x3::eye();
-
-        const ndtcpp::point3 delta = solve3x3(H_Mat, b_Point);
+        const ndtcpp::point3 delta = solve3x3(H_Mat + 1e-6f * ndtcpp::mat3x3::eye(), b_Point);
         trans_mat = trans_mat * expmap(delta);
 
         const float error = multiplyPowPoint3(delta);
@@ -529,10 +529,8 @@ inline scan_matching_result gicp_scan_matching(
 
     float lambda = param.init_lambda;
 
-    bool is_converged = false;
     ndtcpp::point3 prev_delta;
-    float min_error = std::numeric_limits<float>::max();
-    size_t min_correspondence_num = 0;
+    scan_matching_result result = {};
     ndtcpp::mat3x3 min_trans_mat = trans_mat;
 
     const size_t target_points_size = target_points.size();
@@ -602,6 +600,10 @@ inline scan_matching_result gicp_scan_matching(
             IMs.push_back({IM, target_point.mean, point_iter});
         }
         if (IMs.size() < param.min_correspondence) {
+            result.error = error;
+            result.correspondence_num = IMs.size();
+            result.H = H_Mat;
+            result.b = b_Point;
             break;
         }
         error /= IMs.size();
@@ -626,7 +628,7 @@ inline scan_matching_result gicp_scan_matching(
             if (new_error <= error) {
                 error = new_error;
                 if(error < param.converged_error_th){
-                    is_converged = true;
+                    result.converged = true;
                 }
                 lambda /= param.lambda_factor;
                 break;
@@ -640,13 +642,13 @@ inline scan_matching_result gicp_scan_matching(
                 const float dy = std::fabs(prev_delta_inner.y - delta.y);
                 const float dz = std::fabs(prev_delta_inner.z - delta.z);
                 if (std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th) {
-                    is_converged = true;
+                    result.converged = true;
                     break;
                 }
             }
             prev_delta_inner = delta;
 
-            if (is_converged) {
+            if (result.converged) {
                 error = new_error;
             }
         }
@@ -656,40 +658,45 @@ inline scan_matching_result gicp_scan_matching(
             const float dy = std::fabs(prev_delta_inner.y - delta.y);
             const float dz = std::fabs(prev_delta_inner.z - delta.z);
             if (std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th) {
-                is_converged = true;
+                result.converged = true;
             }
         }
 
-        if (is_converged) {
-            min_error = error;
-            min_correspondence_num = IMs.size();
+        if (result.converged) {
+            result.error = error;
+            result.correspondence_num = IMs.size();
+            result.H = H_Mat;
+            result.b = b_Point;
             break;
         }
 
         prev_delta = delta;
 
-        if (min_error > error) {
-            min_error = error;
+        if (result.error > error) {
+            result.error = error;
+            result.correspondence_num = IMs.size();
+            result.H = H_Mat;
+            result.b = b_Point;
             min_trans_mat = trans_mat;
-            min_correspondence_num = IMs.size();
         }
 
         if (iter == param.max_iter_num - 1) {
             trans_mat = min_trans_mat;
         }
+
     }
     if (verbose) {
-        if (is_converged) {
+        if (result.converged) {
             std::cout << "END GICP. ";
         } else {
             std::cout << "END GICP NOT CONVERGED. ";
         }
         std::cout << "ITER: " << iter;
-        std::cout << ", ERROR VALUE: " << min_error;
-        std::cout << ", CORRESPONDENCE: " << min_correspondence_num << "/" << source_points_size << std::endl;
+        std::cout << ", ERROR VALUE: " << result.error;
+        std::cout << ", CORRESPONDENCE: " << result.correspondence_num << "/" << source_points_size << std::endl;
     }
-
-    return {is_converged, min_error, iter, min_correspondence_num};
+    result.iter = iter;
+    return result;
 }
 
 //debug
@@ -858,6 +865,96 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
 
         file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point2_pt_color << "' />\n";
+    }
+
+    file << "</svg>\n";
+    file.close();
+}
+
+inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::vector<ndtpoint2>& point_2, const ndtcpp::mat3x3& odom, const ndtcpp::mat3x3& H, const std::string& file_name, writeSVGSetting setting={}) {
+    std::ofstream file(file_name);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open file for writing." << std::endl;
+        return;
+    }
+    const int size = setting.size;
+    const float scale = setting.scale;
+    const float ellipse_scale = setting.ellipse_scale;
+    const float offset = size / 2.0f;
+    const auto point1_ellipse_color = setting.point1_ellipse_color;
+    const auto point2_ellipse_color = setting.point2_ellipse_color;
+    const auto point1_pt_color = setting.point1_pt_color;
+    const auto point2_pt_color = setting.point2_pt_color;
+    const float odom_scale = 5.0f;
+    const auto odom_color = "blue";
+    const float voxel_size = setting.voxel_size;
+    const float sign = setting.flip_y ? -1.0f: 1.0f;
+
+    file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
+    file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
+    const int voxel_interval = static_cast<int>(std::floor(voxel_size * scale));
+    for (size_t i = 0; i < size + voxel_interval; i+=voxel_interval) {
+        file << "<path d='M" << i << ",0 L" << i << "," << size << "' />\n";
+        file << "<path d='M0," << i << " L" << size << "," << i << "' />\n";
+    }
+    file << "</g>\n";
+    file << "<g fill='#fff' stroke='#000' stroke-width='1'>\n";
+    file << "<path d='M0,0 L0," << size << "' />\n";
+    file << "<path d='M0,0 L" << size << ",0' />\n";
+    file << "<path d='M0," << size << " L" << size << "," << size << "' />\n";
+    file << "<path d='M" << size << ",0 L" << size << "," << size << "' />\n";
+    file << "</g>\n";
+
+    for (const auto& point : point_1) {
+        const auto cx = point.mean.x * scale + offset;
+        const auto cy = point.mean.y * scale + offset;
+        const auto& cov = point.cov;
+        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float e1 = (u - cov.a) / cov.b;
+        // const float e2 = (v - cov.a) / cov.b;
+        // 95%
+        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+        const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point1_pt_color << "' />\n";
+    }
+
+    for (const auto& point : point_2) {
+        const auto cx = point.mean.x * scale + offset;
+        const auto cy = point.mean.y * scale + offset;
+        const auto& cov = point.cov;
+        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float e1 = (u - cov.a) / cov.b;
+        // const float e2 = (v - cov.a) / cov.b;
+        // 95%
+        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+        const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point2_pt_color << "' />\n";
+    }
+    // odom
+    {
+        const auto x = odom.c;
+        const auto y = odom.f;
+        const auto cx = x * scale + offset;
+        const auto cy = y * scale + offset;
+        const auto cov = inverse3x3Copy(H);
+        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+        const float e1 = (u - cov.a) / cov.b;
+        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale * odom_scale;
+        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale * odom_scale;
+        const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << odom_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << odom_color << "' />\n";
+
     }
 
     file << "</svg>\n";
