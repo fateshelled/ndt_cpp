@@ -554,8 +554,12 @@ int main(void) {
                         if (scan2map_result.converged) output_path += "conv_";
                         output_path += std::to_string(scan2map_result.error) + ".svg";
                         auto source = source_points;
+
+                        const ndtcpp::mat2x2 trans2x2 = {scan2map_odom.a, scan2map_odom.b, scan2map_odom.d, scan2map_odom.e};
+                        const ndtcpp::mat2x2 trans2x2_T = {scan2map_odom.a, scan2map_odom.c, scan2map_odom.b, scan2map_odom.d};
                         for (auto& pt: source) {
                             pt.mean = ndtcpp::transformPointCopy(scan2map_odom, pt.mean);
+                            pt.cov = trans2x2 * pt.cov * trans2x2_T;
                         }
                         ndtcpp::writePointsToSVG(source, map_points, output_path, setting);
                     } else {
