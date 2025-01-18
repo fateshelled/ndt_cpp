@@ -28,6 +28,7 @@
 #include "type.hpp"
 #include "ndtcpputil.hpp"
 #include "matrixutil.hpp"
+#include "util.hpp"
 
 
 namespace ndtcpp {
@@ -94,19 +95,6 @@ inline void transformPointsZeroCopy(const ndtcpp::mat3x3& mat, std::vector<ndtcp
         point.y = transformedPoint.y;
     }
 }
-
-
-namespace {
-struct tuple_int_hash {
-  size_t operator()(const std::tuple<int, int>& v) const {
-    const auto hash0 = std::hash<int>{}(std::get<0>(v));
-    const auto hash1 = std::hash<int>{}(std::get<1>(v));
-    size_t seed = 0;
-    seed ^= hash0 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash1 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    return seed;
-  }
-};
 
 inline float multiplyPowPoint3(const ndtcpp::point3& vec){
     return vec.x * vec.x + vec.y * vec.y + vec.z * vec.z;
@@ -190,68 +178,12 @@ inline ndtcpp::point2 transformPointCopy(const ndtcpp::mat3x3& mat, const ndtcpp
     return transformedPoint;
 }
 
-inline ndtcpp::mat3x3 inverse3x3Copy(const ndtcpp::mat3x3& mat){
-    const auto a = 1.0f / (
-        mat.a * mat.e * mat.i +
-        mat.b * mat.f * mat.g +
-        mat.c * mat.d * mat.h -
-        mat.c * mat.e * mat.g -
-        mat.b * mat.d * mat.i -
-        mat.a * mat.f * mat.h
-        );
-
-    ndtcpp::mat3x3 inv_mat;
-    inv_mat.a = mat.e * mat.i - mat.f * mat.h;
-    inv_mat.b = mat.b * mat.i - mat.c * mat.h;
-    inv_mat.c = mat.b * mat.f - mat.c * mat.e;
-
-    inv_mat.d = mat.d * mat.i - mat.f * mat.g;
-    inv_mat.e = mat.a * mat.i - mat.c * mat.g;
-    inv_mat.f = mat.a * mat.f - mat.c * mat.d;
-
-    inv_mat.g = mat.d * mat.h - mat.e * mat.g;
-    inv_mat.h = mat.a * mat.h - mat.b * mat.g;
-    inv_mat.i = mat.a * mat.e - mat.b * mat.d;
-
-
-    inv_mat.a = inv_mat.a * a;
-    inv_mat.b = inv_mat.b * a * -1.0f;
-    inv_mat.c = inv_mat.c * a;
-
-    inv_mat.d = inv_mat.d * a * -1.0f;
-    inv_mat.e = inv_mat.e * a;
-    inv_mat.f = inv_mat.f * a * -1.0f;
-
-    inv_mat.g = inv_mat.g * a;
-    inv_mat.h = inv_mat.h * a * -1.0f;
-    inv_mat.i = inv_mat.i * a;
-
-    return inv_mat;
-}
-
 inline ndtcpp::point2 skewd(const ndtcpp::point2& input_point){
     const ndtcpp::point2 skewd_point {
         input_point.y,
         input_point.x * -1.0f
     };
     return skewd_point;
-}
-
-inline ndtcpp::mat3x3 transpose(const ndtcpp::mat3x3& input_mat){
-    const ndtcpp::mat3x3 transpose_mat{
-        input_mat.a, input_mat.d, input_mat.g,
-        input_mat.b, input_mat.e, input_mat.h,
-        input_mat.c, input_mat.f, input_mat.i
-    };
-    return transpose_mat;
-}
-
-inline ndtcpp::mat2x2 transpose(const ndtcpp::mat2x2& input_mat){
-    const ndtcpp::mat2x2 transpose_mat{
-        input_mat.a, input_mat.c,
-        input_mat.b, input_mat.d,
-    };
-    return transpose_mat;
 }
 
 inline ndtcpp::point2 compute_mean(const std::vector<ndtcpp::point2>& points){
@@ -288,8 +220,6 @@ inline ndtcpp::mat2x2 compute_covariance(const std::vector<ndtcpp::point2>& poin
     cov.d = vyy / point_size;
     return cov;
 }
-
-} // namespace
 
 inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results){
     auto N = 10;
@@ -418,7 +348,7 @@ inline scan_matching_result ndt_scan_matching(
                 0.0f, 0.0f, 1.0f
             };
 
-            const ndtcpp::mat3x3 target_cov_inv = inverse3x3Copy(identity_plus_cov); //IM
+            const ndtcpp::mat3x3 target_cov_inv = identity_plus_cov.inv(); //IM
 
 
             const auto error = ndtcpp::point3{
@@ -435,7 +365,7 @@ inline scan_matching_result ndt_scan_matching(
                 trans_mat.g * -1.0f, trans_mat.h * -1.0f, trans_mat.i * -1.0f
             };
 
-            const ndtcpp::mat3x3 mat_J_T = transpose(mat_J);
+            const ndtcpp::mat3x3 mat_J_T = mat_J.transpose();
 
             H_Mat += (mat_J_T * (target_cov_inv * mat_J));
 
@@ -525,7 +455,7 @@ inline scan_matching_result gicp_scan_matching(
     std::vector<ndtpoint2>& target_points, bool verbose = false,
     const GICP_PARAMS& param = GICP_PARAMS()
 ) {
-    const float max_distance2 = param.max_correspondence_distance * param.max_correspondence_distance;
+    auto max_distance = param.max_correspondence_distance;
 
     float lambda = param.init_lambda;
 
@@ -539,9 +469,13 @@ inline scan_matching_result gicp_scan_matching(
     kdtree::construct(target_points.begin(), target_points.end());
     size_t iter = 0;
     for(iter = 0; iter < param.max_iter_num; ++iter){
+        const float max_distance2 = max_distance * max_distance;
         auto H_Mat = ndtcpp::mat3x3::zeros();
         auto b_Point = ndtcpp::point3::zeros();
         float error = 0.0f;
+
+        const ndtcpp::mat2x2 trans_mat2x2 = {trans_mat.a, trans_mat.b, trans_mat.d, trans_mat.e};
+        const auto trans_mat2x2_T = trans_mat2x2.transpose();
 
         std::vector<std::tuple<ndtcpp::mat3x3, ndtcpp::point2, int>> IMs;
 
@@ -557,24 +491,20 @@ inline scan_matching_result gicp_scan_matching(
             if(target_distance > max_distance2){continue;}
 
             const auto identity_plus_target_cov = ndtcpp::mat3x3{
-                target_point.cov.a + 1.0f, target_point.cov.b + 1.0f, 0.0f,
-                target_point.cov.c + 1.0f, target_point.cov.d + 1.0f, 0.0f,
+                target_point.cov.a + 1.0f, target_point.cov.b       , 0.0f,
+                target_point.cov.c       , target_point.cov.d + 1.0f, 0.0f,
                 0.0f, 0.0f, 1.0f
             };
 
-            const ndtcpp::mat2x2 trans_mat2x2 = {trans_mat.a, trans_mat.b, trans_mat.d, trans_mat.e};
-            const auto trans_mat2x2_T = transpose(trans_mat2x2);
-
             query_point.cov = trans_mat2x2 * source_points[point_iter].cov * trans_mat2x2_T;
             const auto identity_plus_query_cov = ndtcpp::mat3x3{
-                query_point.cov.a + 1.0f, query_point.cov.b + 1.0f, 0.0f,
-                query_point.cov.c + 1.0f, query_point.cov.d + 1.0f, 0.0f,
+                query_point.cov.a + 1.0f, query_point.cov.b       , 0.0f,
+                query_point.cov.c       , query_point.cov.d + 1.0f, 0.0f,
                 0.0f, 0.0f, 1.0f
             };
 
             // Information Matrix
-            const ndtcpp::mat3x3 IM = inverse3x3Copy(identity_plus_target_cov) + \
-                                      inverse3x3Copy(identity_plus_query_cov);
+            const ndtcpp::mat3x3 IM = (identity_plus_target_cov + identity_plus_query_cov).inv();
 
             const auto residual = ndtcpp::point3{
                 target_point.mean.x - query_point.mean.x,
@@ -590,15 +520,19 @@ inline scan_matching_result gicp_scan_matching(
                 trans_mat.g * -1.0f, trans_mat.h * -1.0f, trans_mat.i * -1.0f
             };
 
-            const ndtcpp::mat3x3 mat_J_T = transpose(mat_J);
-            const ndtcpp::mat3x3 mat_J_T_IM = mat_J_T * IM;
+            const ndtcpp::mat3x3 mat_J_TxIM = mat_J.transpose() * IM;
 
-            H_Mat += (mat_J_T_IM * mat_J);      // J.T * IM * J
-            b_Point += (mat_J_T_IM * residual); // J.T * IM * residual
+            H_Mat += (mat_J_TxIM * mat_J);      // J.T * IM * J
+            b_Point += (mat_J_TxIM * residual); // J.T * IM * residual
 
             error += calc_gicp_error(query_point.mean, target_point.mean, IM);
-            IMs.push_back({IM, target_point.mean, point_iter});
+            IMs.emplace_back(IM, target_point.mean, point_iter);
         }
+        b_Point *= -1.0f;
+        if (IMs.size() > 0) {
+            error /= IMs.size();
+        }
+
         if (IMs.size() < param.min_correspondence) {
             result.error = error;
             result.correspondence_num = IMs.size();
@@ -606,15 +540,12 @@ inline scan_matching_result gicp_scan_matching(
             result.b = b_Point;
             break;
         }
-        error /= IMs.size();
-
-        b_Point *= -1.0f;
 
         ndtcpp::point3 delta;
         ndtcpp::point3 prev_delta_inner;
         for (size_t inner_iter = 0; inner_iter < param.max_inner_iter_num; ++inner_iter) {
             // damping
-            auto H = H_Mat + lambda * ndtcpp::mat3x3::eye();
+            const auto H = H_Mat + lambda * ndtcpp::mat3x3::eye();
 
             delta = solve3x3(H, b_Point);
             trans_mat = trans_mat * expmap(delta);
@@ -944,7 +875,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
         const auto y = odom.f;
         const auto cx = x * scale + offset;
         const auto cy = y * scale + offset;
-        const auto cov = inverse3x3Copy(H);
+        const auto cov = H.inv();
         const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
         const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
         const float e1 = (u - cov.a) / cov.b;

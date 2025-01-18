@@ -76,6 +76,28 @@ namespace ndtcpp
         return result;
     }
 
+    inline auto operator*(const mat2x2& mat, const point2& point)
+    {
+        point2 result;
+        result.x = mat.a * point.x + mat.b * point.y;
+        result.y = mat.c * point.x + mat.d * point.y;
+        return result;
+    }
+
+    inline auto operator*(const point2_T& point_T, const mat2x2& mat)
+    {
+        point2_T result;
+        result.x = point_T.x * mat.a + point_T.y * mat.c;
+        result.y = point_T.x * mat.b + point_T.y * mat.d;
+        return result;
+    }
+
+
+    inline auto operator*(const point2_T& point_T, const point2& point)
+    {
+        return point_T.x * point.x + point_T.y * point.y;
+    }
+
     inline auto operator*(const mat3x3& mat, const point3& vec)
     {
         point3 result;
@@ -118,10 +140,60 @@ namespace ndtcpp
         mat1.i += mat2.i;
     }
 
+    inline auto operator+(const ndtcpp::point2& point1, const ndtcpp::point2& point2){
+        ndtcpp::point2 ret = {
+            point1.x + point2.x,
+            point1.y + point2.y,
+        };
+        return ret;
+    }
+
+    inline auto operator+=(ndtcpp::point2& point1, const ndtcpp::point2& point2){
+        point1.x += point2.x;
+        point1.y += point2.y;
+    }
+
+    inline auto operator-(const ndtcpp::point2& point1, const ndtcpp::point2& point2){
+        ndtcpp::point2 ret = {
+            point1.x - point2.x,
+            point1.y - point2.y,
+        };
+        return ret;
+    }
+
+    inline auto operator-=(ndtcpp::point2& point1, const ndtcpp::point2& point2){
+        point1.x -= point2.x;
+        point1.y -= point2.y;
+    }
+
+    inline auto operator+(const ndtcpp::point3& point1, const ndtcpp::point3& point2){
+        ndtcpp::point3 ret = {
+            point1.x + point2.x,
+            point1.y + point2.y,
+            point1.z + point2.z,
+        };
+        return ret;
+    }
+
     inline auto operator+=(ndtcpp::point3& point1, const ndtcpp::point3& point2){
         point1.x += point2.x;
         point1.y += point2.y;
         point1.z += point2.z;
+    }
+
+    inline auto operator-(const ndtcpp::point3& point1, const ndtcpp::point3& point2){
+        ndtcpp::point3 ret = {
+            point1.x - point2.x,
+            point1.y - point2.y,
+            point1.z - point2.z,
+        };
+        return ret;
+    }
+
+    inline auto operator-=(ndtcpp::point3& point1, const ndtcpp::point3& point2){
+        point1.x -= point2.x;
+        point1.y -= point2.y;
+        point1.z -= point2.z;
     }
 
     inline auto operator*(const float a, const ndtcpp::point3& point){
