@@ -146,11 +146,13 @@ public:
 
     std::vector<ndtcpp::point2> to_point_cloud() {
         std::vector<ndtcpp::point2> ret;
+        ret.reserve(this->occupancy_.size());
         for (const auto&[index, voxel]: this->occupancy_) {
             if (voxel.state == STATE_OCCUPIED) {
                 ret.push_back(voxel.mean);
             }
         }
+        ret.shrink_to_fit();
         return ret;
     }
 

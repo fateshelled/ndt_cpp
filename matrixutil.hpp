@@ -84,6 +84,20 @@ namespace ndtcpp
         return result;
     }
 
+    inline auto operator*(const float a, const point2& point)
+    {
+        point2 result;
+        result.x = a * point.x;
+        result.y = a * point.y;
+        return result;
+    }
+
+    inline auto operator*=(point2& point, const float a)
+    {
+        point.x *= a;
+        point.y *= a;
+    }
+
     inline auto operator*(const point2_T& point_T, const mat2x2& mat)
     {
         point2_T result;
@@ -138,6 +152,81 @@ namespace ndtcpp
         mat1.g += mat2.g;
         mat1.h += mat2.h;
         mat1.i += mat2.i;
+    }
+
+    inline auto operator-(const mat3x3& mat1, const mat3x3& mat2)
+    {
+        mat3x3 result {
+            mat1.a - mat2.a,
+            mat1.b - mat2.b,
+            mat1.c - mat2.c,
+
+            mat1.d - mat2.d,
+            mat1.e - mat2.e,
+            mat1.f - mat2.f,
+
+            mat1.g - mat2.g,
+            mat1.h - mat2.h,
+            mat1.i - mat2.i,
+        };
+        return result;
+    }
+
+    inline auto operator-=(mat3x3& mat1, const mat3x3& mat2)
+    {
+        mat1.a -= mat2.a;
+        mat1.b -= mat2.b;
+        mat1.c -= mat2.c;
+
+        mat1.d -= mat2.d;
+        mat1.e -= mat2.e;
+        mat1.f -= mat2.f;
+
+        mat1.g -= mat2.g;
+        mat1.h -= mat2.h;
+        mat1.i -= mat2.i;
+    }
+
+    inline auto operator+(const mat2x2& mat1, const mat2x2& mat2)
+    {
+        mat2x2 result {
+            mat1.a + mat2.a,
+            mat1.b + mat2.b,
+
+            mat1.c + mat2.c,
+            mat1.d + mat2.d,
+        };
+        return result;
+    }
+
+    inline auto operator+=(mat2x2& mat1, const mat2x2& mat2)
+    {
+        mat1.a += mat2.a;
+        mat1.b += mat2.b;
+
+        mat1.c += mat2.c;
+        mat1.d += mat2.d;
+    }
+
+    inline auto operator-(const mat2x2& mat1, const mat2x2& mat2)
+    {
+        mat2x2 result {
+            mat1.a - mat2.a,
+            mat1.b - mat2.b,
+
+            mat1.c - mat2.c,
+            mat1.d - mat2.d,
+        };
+        return result;
+    }
+
+    inline auto operator-=(mat2x2& mat1, const mat2x2& mat2)
+    {
+        mat1.a -= mat2.a;
+        mat1.b -= mat2.b;
+
+        mat1.c -= mat2.c;
+        mat1.d -= mat2.d;
     }
 
     inline auto operator+(const ndtcpp::point2& point1, const ndtcpp::point2& point2){

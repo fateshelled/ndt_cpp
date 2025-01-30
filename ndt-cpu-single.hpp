@@ -100,6 +100,46 @@ inline float multiplyPowPoint3(const ndtcpp::point3& vec){
     return vec.x * vec.x + vec.y * vec.y + vec.z * vec.z;
 }
 
+inline std::vector<float> compute_eigen_values(const ndtcpp::mat2x2& m) {
+    const auto a_d = m.a + m.d;
+    const auto root = a_d * a_d - 4.0f * (m.a * m.d - m.b * m.c);
+    if (root < 0) {
+        return {};
+    }
+    const auto val0 = 0.5f * (a_d - std::sqrt(root));
+    const auto val1 = 0.5f * (a_d + std::sqrt(root));
+    if (std::abs(val0 - val1) < 1e-5f) {
+        return {val0};
+    }
+    if (val0 < val1) {
+        return {val0, val1};
+    }
+    return {val1, val0};
+}
+
+inline ndtcpp::point2 compute_eigen_vector(const ndtcpp::mat2x2& m, const float eigen_value) {
+    const auto M = m - eigen_value * ndtcpp::mat2x2::eye();
+
+    // 逆べき乗法
+    constexpr size_t k = 5;
+    ndtcpp::point2 eigen_vector = {2.f, 1.f};
+    for (size_t i = 0; i < k; ++i) {
+        eigen_vector = M * eigen_vector;
+    }
+    eigen_vector *= (1.0f / eigen_vector.norm());
+    return eigen_vector;
+}
+
+inline std::vector<std::tuple<float, ndtcpp::point2>> compute_eigen(const ndtcpp::mat2x2& m) {
+    const auto eigen_values = compute_eigen_values(m);
+    std::vector<std::tuple<float, ndtcpp::point2>> result;
+    for (const auto& val: eigen_values) {
+        const auto eigen_vector = compute_eigen_vector(m, val);
+        result.push_back({val, eigen_vector});
+    }
+    return result;
+}
+
 inline ndtcpp::point3 solve3x3(const ndtcpp::mat3x3& m, const ndtcpp::point3& p) {
     float A[3][4] = {
         {m.a, m.b, m.c, p.x},
@@ -107,7 +147,7 @@ inline ndtcpp::point3 solve3x3(const ndtcpp::mat3x3& m, const ndtcpp::point3& p)
         {m.g, m.h, m.i, p.z}
     };
 
-    const int n = 3;
+    constexpr int n = 3;
 
     for (int i = 0; i < n; i++) {
         // Pivot選択
@@ -146,6 +186,54 @@ inline ndtcpp::point3 solve3x3(const ndtcpp::mat3x3& m, const ndtcpp::point3& p)
     solution.z = A[2][3] / A[2][2];
     solution.y = (A[1][3] - A[1][2] * solution.z) / A[1][1];
     solution.x = (A[0][3] - A[0][2] * solution.z - A[0][1] * solution.y) / A[0][0];
+
+    return solution;
+}
+
+inline ndtcpp::point2 solve2x2(const ndtcpp::mat2x2& m, const ndtcpp::point2& p) {
+    float A[2][3] = {
+        {m.a, m.b, p.x},
+        {m.c, m.d, p.y},
+    };
+
+    constexpr int n = 2;
+
+    for (int i = 0; i < n; i++) {
+        // Pivot選択
+        float maxEl = std::abs(A[i][i]);
+        int maxRow = i;
+        for (int k = i+1; k < n; k++) {
+            const auto el = std::abs(A[k][i]);
+            if (el > maxEl) {
+                maxEl = el;
+                maxRow = k;
+            }
+        }
+
+        // Pivotのある行を交換
+        for (int k = i; k < n+1;k++) {
+            float tmp = A[maxRow][k];
+            A[maxRow][k] = A[i][k];
+            A[i][k] = tmp;
+        }
+
+        // すべての行について消去を行う
+        for (int k = i+1; k < n; k++) {
+            const float c = -A[k][i] / A[i][i];
+            for (int j = i; j < n+1; j++) {
+                if (i == j) {
+                    A[k][j] = 0.0f;
+                } else {
+                    A[k][j] += c * A[i][j];
+                }
+            }
+        }
+    }
+
+    // 解の計算 (後退代入)
+    ndtcpp::point2 solution;
+    solution.y = A[1][2] / A[1][1];
+    solution.x = (A[0][2] - A[0][1] * solution.y) / A[0][0];
 
     return solution;
 }
@@ -221,6 +309,25 @@ inline ndtcpp::mat2x2 compute_covariance(const std::vector<ndtcpp::point2>& poin
     return cov;
 }
 
+inline ndtcpp::mat2x2 compute_covariance_line(const std::vector<ndtcpp::point2>& points, const ndtcpp::point2& mean){
+
+    ndtcpp::mat2x2 cov = compute_covariance(points, mean);
+
+    auto ret = compute_eigen(cov);
+    auto eig_vec0 = std::get<1>(ret[0]);
+    auto eig_vec1 = std::get<1>(ret[1]);
+    ndtcpp::mat2x2 mat;
+    mat.a = eig_vec0.x;
+    mat.b = eig_vec1.x;
+    mat.c = eig_vec0.y;
+    mat.d = eig_vec1.y;
+
+    auto vals = ndtcpp::mat2x2::diagonal(1.0f, 0.1f);
+    cov = mat * vals * mat.transpose();
+
+    return cov;
+}
+
 inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results){
     auto N = 10;
 
@@ -236,7 +343,8 @@ inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<
     for(std::size_t i = 0; i < point_size; i++) {
         kdtree::search_knn(points.begin(), points.end(), result_points.begin(), result_distances.begin(), N, points[i]);
         const auto mean = compute_mean(result_points);
-        const auto cov = compute_covariance(result_points, mean);
+        // const auto cov = compute_covariance(result_points, mean);
+        const auto cov = compute_covariance_line(result_points, mean);
         results[i] = {mean, cov};
     }
 }
@@ -305,7 +413,8 @@ inline void compute_ndt_points_downsampling(
             result_points.push_back(points[i]);
         }
         const auto mean = compute_mean(result_points);
-        const auto cov = compute_covariance(result_points, mean);
+        // const auto cov = compute_covariance(result_points, mean);
+        const auto cov = compute_covariance_line(result_points, mean);
         results.push_back({mean, cov});
     }
 }
@@ -485,10 +594,10 @@ inline scan_matching_result gicp_scan_matching(
                 {}
             };
             ndtpoint2 target_point;
-            float target_distance;
-            kdtree::search_knn(target_points.begin(), target_points.end(), &target_point, &target_distance, 1, query_point);
+            float target_sq_distance;
+            kdtree::search_knn(target_points.begin(), target_points.end(), &target_point, &target_sq_distance, 1, query_point);
 
-            if(target_distance > max_distance2){continue;}
+            if(target_sq_distance > max_distance2){continue;}
 
             const auto identity_plus_target_cov = ndtcpp::mat3x3{
                 target_point.cov.a + 1.0f, target_point.cov.b       , 0.0f,

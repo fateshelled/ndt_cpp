@@ -28,6 +28,10 @@ namespace ndtcpp
             return {0.f, 0.f};
         }
         point2_T transpose() const;
+
+        float norm() const {
+            return std::sqrt(x * x + y * y);
+        }
     };
 
     struct point2_T {
@@ -77,8 +81,17 @@ namespace ndtcpp
         static mat2x2 zeros() {
             return {0.f, 0.f, 0.f, 0.f};
         }
+        static mat2x2 diagonal(float a, float d) {
+            return {a, 0.f, 0.f, d};
+        }
         mat2x2 transpose() const {
             return {a, c, b, d};
+        }
+        mat2x2 diagonal() {
+            return {a, 0.f, 0.f, d};
+        }
+        point2 diagonal_vector() const {
+            return {a, d};
         }
         mat2x2 inv() const {
             const auto val = 1.0f / (
@@ -88,6 +101,9 @@ namespace ndtcpp
                 val * d , -val * b,
                 -val * c, val * a
             };
+        }
+        float det() const {
+            return a * d - b * c;
         }
     };
 
@@ -106,6 +122,13 @@ namespace ndtcpp
                 a, d, g,
                 b, e, h,
                 c, f, i,
+            };
+        }
+        mat3x3 diagonal() const {
+            return {
+                a,    0.0f, 0.0f,
+                0.0f,    e, 0.0f,
+                0.0f, 0.0f, i,
             };
         }
         mat3x3 inv() const {
@@ -145,6 +168,9 @@ namespace ndtcpp
             inv_mat.i = inv_mat.i * val;
 
             return inv_mat;
+        }
+        float det() const {
+            return a * e * i + b * f * g + c * d * h - c * e * g - b * d * i - a * f * h;
         }
 
     };

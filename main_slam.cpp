@@ -132,7 +132,8 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
             points_carts.begin(), points_carts.end(),
             result_points.begin(), result_distances.begin(), neighbor_n,
             downsampled[i]);
-        const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
+        // const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
+        const auto cov = ndtcpp::compute_covariance_line(result_points, downsampled[i]);
         result.push_back({downsampled[i], cov});
     }
     return result;
@@ -140,8 +141,8 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
 
 
 int main(void) {
-    std::string dataset_path = "dataset/corridor.lsc";
-    // std::string dataset_path = "dataset/hall.lsc";
+    // std::string dataset_path = "dataset/corridor.lsc";
+    std::string dataset_path = "dataset/hall.lsc";
 
     const float min_dist = 0.3f;
     const float max_dist = 20.0f;
