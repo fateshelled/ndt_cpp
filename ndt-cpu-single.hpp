@@ -309,11 +309,9 @@ inline ndtcpp::mat2x2 compute_covariance(const std::vector<ndtcpp::point2>& poin
     return cov;
 }
 
-inline ndtcpp::mat2x2 compute_covariance_line(const std::vector<ndtcpp::point2>& points, const ndtcpp::point2& mean){
+inline void update_covariance_line(ndtcpp::ndtpoint2& point){
 
-    ndtcpp::mat2x2 cov = compute_covariance(points, mean);
-
-    auto ret = compute_eigen(cov);
+    auto ret = compute_eigen(point.cov);
     auto eig_vec0 = std::get<1>(ret[0]);
     auto eig_vec1 = std::get<1>(ret[1]);
     ndtcpp::mat2x2 mat;
@@ -323,9 +321,13 @@ inline ndtcpp::mat2x2 compute_covariance_line(const std::vector<ndtcpp::point2>&
     mat.d = eig_vec1.y;
 
     auto vals = ndtcpp::mat2x2::diagonal(1.0f, 0.1f);
-    cov = mat * vals * mat.transpose();
+    point.cov = mat * vals * mat.transpose();
+}
 
-    return cov;
+inline void update_covariances_line(std::vector<ndtcpp::ndtpoint2>& points){
+    for(auto& point : points){
+        update_covariance_line(point);
+    }
 }
 
 inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results){
@@ -343,8 +345,7 @@ inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<
     for(std::size_t i = 0; i < point_size; i++) {
         kdtree::search_knn(points.begin(), points.end(), result_points.begin(), result_distances.begin(), N, points[i]);
         const auto mean = compute_mean(result_points);
-        // const auto cov = compute_covariance(result_points, mean);
-        const auto cov = compute_covariance_line(result_points, mean);
+        const auto cov = compute_covariance(result_points, mean);
         results[i] = {mean, cov};
     }
 }
@@ -413,8 +414,7 @@ inline void compute_ndt_points_downsampling(
             result_points.push_back(points[i]);
         }
         const auto mean = compute_mean(result_points);
-        // const auto cov = compute_covariance(result_points, mean);
-        const auto cov = compute_covariance_line(result_points, mean);
+        const auto cov = compute_covariance(result_points, mean);
         results.push_back({mean, cov});
     }
 }

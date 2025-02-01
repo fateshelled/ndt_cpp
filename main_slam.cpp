@@ -132,10 +132,10 @@ inline std::vector<ndtcpp::ndtpoint2> preprocess(
             points_carts.begin(), points_carts.end(),
             result_points.begin(), result_distances.begin(), neighbor_n,
             downsampled[i]);
-        // const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
-        const auto cov = ndtcpp::compute_covariance_line(result_points, downsampled[i]);
+        const auto cov = ndtcpp::compute_covariance(result_points, downsampled[i]);
         result.push_back({downsampled[i], cov});
     }
+    ndtcpp::update_covariances_line(result);
     return result;
 }
 
@@ -266,6 +266,7 @@ int main(void) {
                 if (updated) {
                     auto cloud = map.to_point_cloud();
                     ndtcpp::compute_ndt_points(cloud, map_points);
+                    ndtcpp::update_covariances_line(map_points);
                 }
 
                 auto end_time = std::chrono::high_resolution_clock::now();
