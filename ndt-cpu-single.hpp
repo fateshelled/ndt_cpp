@@ -749,7 +749,9 @@ struct writeSVGSetting {
     std::string point2_ellipse_color = "green";
     std::string point1_pt_color = "red";
     std::string point2_pt_color = "darkgreen";
-    bool flip_y = false;
+    bool draw_point_covariance = false;
+    bool draw_odom_covariance = false;
+    bool flip_y = true;
 };
 
 inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const std::vector<ndtcpp::point2>& point_2, const std::string& file_name, writeSVGSetting setting={}) {
@@ -822,18 +824,20 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
 
     for (const auto& point : point_2) {
         const auto cx = point.mean.x * scale + offset;
-        const auto cy = point.mean.y * scale + offset;
-        const auto& cov = point.cov;
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        // const float e2 = (v - cov.a) / cov.b;
-        // 95%
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
+        const auto cy = sign * point.mean.y * scale + offset;
+        if (setting.draw_point_covariance) {
+            const auto& cov = point.cov;
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            // const float e2 = (v - cov.a) / cov.b;
+            // 95%
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
         file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
@@ -875,36 +879,42 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
 
     for (const auto& point : point_1) {
         const auto cx = point.mean.x * scale + offset;
-        const auto cy = point.mean.y * scale + offset;
-        const auto& cov = point.cov;
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        // const float e2 = (v - cov.a) / cov.b;
-        // 95%
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
+        const auto cy = sign * point.mean.y * scale + offset;
 
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point1_pt_color << "' />\n";
+        if (setting.draw_point_covariance) {
+            const auto& cov = point.cov;
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            // const float e2 = (v - cov.a) / cov.b;
+            // 95%
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
         const auto cx = point.mean.x * scale + offset;
-        const auto cy = point.mean.y * scale + offset;
-        const auto& cov = point.cov;
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        // const float e2 = (v - cov.a) / cov.b;
-        // 95%
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
+        const auto cy = sign * point.mean.y * scale + offset;
 
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point2_pt_color << "' />\n";
+        if (setting.draw_point_covariance) {
+            const auto& cov = point.cov;
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            // const float e2 = (v - cov.a) / cov.b;
+            // 95%
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
+
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
     file << "</svg>\n";
@@ -947,53 +957,58 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
 
     for (const auto& point : point_1) {
         const auto cx = point.mean.x * scale + offset;
-        const auto cy = point.mean.y * scale + offset;
-        const auto& cov = point.cov;
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        // const float e2 = (v - cov.a) / cov.b;
-        // 95%
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
+        const auto cy = sign * point.mean.y * scale + offset;
+        if (setting.draw_point_covariance) {
+            const auto& cov = point.cov;
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            // const float e2 = (v - cov.a) / cov.b;
+            // 95%
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point1_pt_color << "' />\n";
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
         const auto cx = point.mean.x * scale + offset;
-        const auto cy = point.mean.y * scale + offset;
-        const auto& cov = point.cov;
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        // const float e2 = (v - cov.a) / cov.b;
-        // 95%
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
+        const auto cy = sign * point.mean.y * scale + offset;
+        if (setting.draw_point_covariance) {
+            const auto& cov = point.cov;
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            // const float e2 = (v - cov.a) / cov.b;
+            // 95%
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
 
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << point2_pt_color << "' />\n";
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
     // odom
     {
         const auto x = odom.c;
         const auto y = odom.f;
         const auto cx = x * scale + offset;
-        const auto cy = y * scale + offset;
-        const auto cov = H.inv();
-        const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
-        const float e1 = (u - cov.a) / cov.b;
-        const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale * odom_scale;
-        const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale * odom_scale;
-        const auto rot = std::atan(e1) * (180.0f / M_PI);
-
-        file << "<ellipse cx='" << cx << "' cy='" << sign * cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << odom_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
-        file << "<circle cx='" << cx << "' cy='" << sign * cy << "' r='1' fill='" << odom_color << "' />\n";
+        const auto cy = sign * y * scale + offset;
+        if (setting.draw_odom_covariance) {
+            const auto cov = H.inv();
+            const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float v = 0.5f * ((cov.a + cov.d) - std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
+            const float e1 = (u - cov.a) / cov.b;
+            const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale * odom_scale;
+            const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale * odom_scale;
+            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << odom_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
+        }
+        file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << odom_color << "' />\n";
 
     }
 
