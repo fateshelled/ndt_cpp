@@ -15,7 +15,7 @@ int main(void){
 
         auto source = scan_points1;
         auto target = target_points;
-        auto trans_mat1 = ndtcpp::makeTransformationMatrix(1.0f, 0.0f, 0.5f);
+        auto trans_mat1 = ndtcpp::makeTransformationMatrix(1.0f, 0.0f, 0.1f);
         transformPointsZeroCopy(trans_mat1, source);
 
         auto ndt_points = std::vector<ndtcpp::ndtpoint2>();
@@ -34,7 +34,7 @@ int main(void){
         durations.push_back(microsec);
         if (i == N - 1) {
             ndtcpp::writePointsToSVG(source, target, "scan_points_ds.svg");
-            ndtcpp::writePointsToSVG(source, ndt_points, "scan_points_ndt_ds.svg");
+            ndtcpp::writePointsToSVG(source, ndt_points, "scan_points_ndt_ds.svg", {.ellipse_scale=5.0, .draw_point_covariance = true});
         }
     }
     const double mean = std::accumulate(durations.begin(), durations.end(), 0.0) / durations.size();

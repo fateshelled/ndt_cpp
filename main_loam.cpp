@@ -59,7 +59,7 @@ int main(void){
         durations.push_back(microsec);
         if (i == N - 1) {
             ndtcpp::writePointsToSVG(source, target, "scan_points_loam.svg");
-            ndtcpp::writePointsToSVG(source_ndt, target_ndt, "scan_points_loam_cov.svg");
+            ndtcpp::writePointsToSVG(source_ndt, target_ndt, "scan_points_loam_cov.svg", {.ellipse_scale=10.0, .draw_point_covariance = true});
         }
     }
     const double mean = std::accumulate(durations.begin(), durations.end(), 0.0) / durations.size();
