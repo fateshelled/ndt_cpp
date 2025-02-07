@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 #include "flatkdtree.h"
 #include "type.hpp"
@@ -75,6 +76,12 @@ struct kdtree::trait::dimension<ndtcpp::ndtpoint2> {
 };
 
 namespace ndtcpp {
+
+inline std::vector<point2> extract_points(const std::vector<ndtpoint2> &points) {
+    std::vector<point2> result;
+    std::transform(points.begin(), points.end(), std::back_inserter(result), [](const ndtpoint2 &pt) { return pt.mean; });
+    return result;
+}
 
 inline ndtcpp::mat3x3 makeTransformationMatrix(const float& tx, const float& ty, const float& theta) {
     ndtcpp::mat3x3 mat = {
@@ -309,9 +316,9 @@ inline ndtcpp::mat2x2 compute_covariance(const std::vector<ndtcpp::point2>& poin
     return cov;
 }
 
-inline void update_covariance_line(ndtcpp::ndtpoint2& point){
+inline ndtcpp::mat2x2 update_covariance(const ndtcpp::mat2x2& covariance, const ndtcpp::point2& val){
 
-    auto ret = compute_eigen(point.cov);
+    auto ret = compute_eigen(covariance);
     auto eig_vec0 = std::get<1>(ret[0]);
     auto eig_vec1 = std::get<1>(ret[1]);
     ndtcpp::mat2x2 mat;
@@ -320,8 +327,12 @@ inline void update_covariance_line(ndtcpp::ndtpoint2& point){
     mat.c = eig_vec0.y;
     mat.d = eig_vec1.y;
 
-    auto vals = ndtcpp::mat2x2::diagonal(1.0f, 0.1f);
-    point.cov = mat * vals * mat.transpose();
+    auto vals = ndtcpp::mat2x2::diagonal(val.x, val.y);
+    return mat * vals * mat.transpose();
+}
+
+inline void update_covariance_line(ndtcpp::ndtpoint2& point){
+    point.cov = update_covariance(point.cov, {1.0f, 0.1f});
 }
 
 inline void update_covariances_line(std::vector<ndtcpp::ndtpoint2>& points){
