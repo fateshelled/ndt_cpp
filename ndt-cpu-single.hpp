@@ -845,7 +845,7 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
             // 95%
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
 
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
@@ -901,7 +901,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
             // 95%
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
 
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
@@ -921,7 +921,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
             // 95%
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
 
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
@@ -978,7 +978,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
             // 95%
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
 
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point1_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
@@ -997,7 +997,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
             // 95%
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
 
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << point2_ellipse_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
@@ -1016,7 +1016,7 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
             const float e1 = (u - cov.a) / cov.b;
             const float rx = 2.0f * 2.448f * std::sqrt(u) * ellipse_scale * odom_scale;
             const float ry = 2.0f * 2.448f * std::sqrt(v) * ellipse_scale * odom_scale;
-            const auto rot = std::atan(e1) * (180.0f / M_PI);
+            const auto rot = - std::atan(e1) * (180.0f / M_PI);
             file << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << odom_color << "' fill-opacity='0.5' transform='rotate(" << rot << ", " << cx << ", " << cy << ")'/>\n";
         }
         file << "<circle cx='" << cx << "' cy='" << cy << "' r='1' fill='" << odom_color << "' />\n";
