@@ -1,12 +1,15 @@
 #pragma once
 
 #include "ndt-cpu-single.hpp"
+#include "gicp.hpp"
 #include <numeric>
 
 
 namespace ndtcpp {
 
 void extract_feature_points(const std::vector<ndtcpp::ndtpoint2>& points, const float corner_threshold, std::vector<ndtcpp::ndtpoint2>& lines, std::vector<ndtcpp::ndtpoint2>& corners) {
+    const auto plane_eigen_values = ndtcpp::mat2x2::diagonal(1.0f, .1f);
+
     lines.clear();
     corners.clear();
     lines.reserve(points.size());
@@ -19,12 +22,16 @@ void extract_feature_points(const std::vector<ndtcpp::ndtpoint2>& points, const 
         if (ratio < corner_threshold) {
             corners.push_back(pt);
         } else {
-            lines.push_back(pt);
+            ndtcpp::mat2x2 mat;
+            mat.a = eigen_vec0.x;
+            mat.b = eigen_vec1.x;
+            mat.c = eigen_vec0.y;
+            mat.d = eigen_vec1.y;
+            mat = mat * plane_eigen_values * mat.transpose();
+
+            lines.emplace_back(pt.mean, mat);
         }
     }
-    ndtcpp::update_covariances_line(lines);
-    lines.shrink_to_fit();
-    corners.shrink_to_fit();
 }
 
 inline ndtcpp::scan_matching_result loam_scan_matching(
@@ -187,9 +194,6 @@ inline ndtcpp::scan_matching_result loam_scan_matching(
 
             delta = solve3x3(H, b_Point);
             trans_mat = trans_mat * expmap(delta);
-
-            // TODO
-            // trans_mat = normalize_rotation(trans_mat);
 
             float new_error = 0.0f;
             for (const auto& [IM, target, point_iter]: IMs_line) {

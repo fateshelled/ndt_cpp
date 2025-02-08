@@ -39,7 +39,7 @@ int main(void){
 
         auto target_lines = std::vector<ndtcpp::ndtpoint2>();
         auto target_corners = std::vector<ndtcpp::ndtpoint2>();
-        extract_feature_points(target_ndt, feature_threshold, target_lines, target_corners);
+        ndtcpp::extract_feature_points(target_ndt, feature_threshold, target_lines, target_corners);
 
         ndtcpp::loam_scan_matching(trans_mat1, source_lines, source_corners, target_lines, target_corners, verbose, params);
 

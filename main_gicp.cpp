@@ -1,6 +1,7 @@
 #include <numeric>
 #include <chrono>
 #include "ndt-cpu-single.hpp"
+#include "gicp.hpp"
 
 
 int main(void){
