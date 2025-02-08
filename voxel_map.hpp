@@ -158,7 +158,7 @@ public:
 
     size_t saveAsSVG(const std::string& file_name) {
         ndtcpp::writeSVGSetting setting;
-        setting.size = 250;
+        setting.size = 1000 * this->voxel_size_;
         setting.point1_pt_color = "black";
         setting.point2_pt_color = "white";
         setting.flip_y = true;
