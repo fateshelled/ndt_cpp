@@ -341,8 +341,7 @@ inline void update_covariances_line(std::vector<ndtcpp::ndtpoint2>& points){
     }
 }
 
-inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results){
-    auto N = 10;
+inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<ndtpoint2> &results, const size_t N = 10){
 
     const auto point_size = points.size();
 
@@ -350,7 +349,6 @@ inline void compute_ndt_points(std::vector<ndtcpp::point2>& points, std::vector<
     std::vector<ndtcpp::point2> result_points(N);
     std::vector<float> result_distances(N);
 
-    std::vector<ndtcpp::mat2x2> covs(point_size);
     results.resize(point_size);
 
     for(std::size_t i = 0; i < point_size; i++) {
@@ -762,7 +760,8 @@ struct writeSVGSetting {
     std::string point2_pt_color = "darkgreen";
     bool draw_point_covariance = false;
     bool draw_odom_covariance = false;
-    bool flip_y = true;
+    bool flip_x = true;
+    bool flip_y = false;
 };
 
 inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const std::vector<ndtcpp::point2>& point_2, const std::string& file_name, writeSVGSetting setting={}) {
@@ -780,16 +779,17 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     // const float voxel_size = setting.voxel_size;
-    const float sign = setting.flip_y ? -1.0f: 1.0f;
+    const float sign_x = setting.flip_x ? -1.0f: 1.0f;
+    const float sign_y = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"500\" height=\"500\">\n";
     file << "<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n";
     for (const auto& point : point_1) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
+        file << "<circle cx='" << sign_x * point.x * scale + offset << "' cy='" << sign_y * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point2_pt_color << "' />\n";
+        file << "<circle cx='" << sign_x * point.x * scale + offset << "' cy='" << sign_y * point.y * scale + offset << "' r='1' fill='" << point2_pt_color << "' />\n";
     }
 
     file << "</svg>\n";
@@ -812,7 +812,8 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     const float voxel_size = setting.voxel_size;
-    const float sign = setting.flip_y ? -1.0f: 1.0f;
+    const float sign_x = setting.flip_x ? -1.0f: 1.0f;
+    const float sign_y = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
@@ -830,12 +831,12 @@ inline void writePointsToSVG(const std::vector<ndtcpp::point2>& point_1, const s
     file << "</g>\n";
 
     for (const auto& point : point_1) {
-        file << "<circle cx='" << point.x * scale + offset << "' cy='" << sign * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
+        file << "<circle cx='" << sign_x * point.x * scale + offset << "' cy='" << sign_y * point.y * scale + offset << "' r='1' fill='" << point1_pt_color << "' />\n";
     }
 
     for (const auto& point : point_2) {
-        const auto cx = point.mean.x * scale + offset;
-        const auto cy = sign * point.mean.y * scale + offset;
+        const auto cx = sign_x * point.mean.x * scale + offset;
+        const auto cy = sign_y * point.mean.y * scale + offset;
         if (setting.draw_point_covariance) {
             const auto& cov = point.cov;
             const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
@@ -871,7 +872,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     const std::string point1_pt_color = setting.point1_pt_color;
     const std::string point2_pt_color = setting.point2_pt_color;
     const float voxel_size = setting.voxel_size;
-    const float sign = setting.flip_y ? -1.0f: 1.0f;
+    const float sign_x = setting.flip_x ? -1.0f: 1.0f;
+    const float sign_y = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
@@ -889,8 +891,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     file << "</g>\n";
 
     for (const auto& point : point_1) {
-        const auto cx = point.mean.x * scale + offset;
-        const auto cy = sign * point.mean.y * scale + offset;
+        const auto cx = sign_x * point.mean.x * scale + offset;
+        const auto cy = sign_y * point.mean.y * scale + offset;
 
         if (setting.draw_point_covariance) {
             const auto& cov = point.cov;
@@ -909,8 +911,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     }
 
     for (const auto& point : point_2) {
-        const auto cx = point.mean.x * scale + offset;
-        const auto cy = sign * point.mean.y * scale + offset;
+        const auto cx = sign_x * point.mean.x * scale + offset;
+        const auto cy = sign_y * point.mean.y * scale + offset;
 
         if (setting.draw_point_covariance) {
             const auto& cov = point.cov;
@@ -949,7 +951,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     const float odom_scale = 5.0f;
     const auto odom_color = "blue";
     const float voxel_size = setting.voxel_size;
-    const float sign = setting.flip_y ? -1.0f: 1.0f;
+    const float sign_x = setting.flip_x ? -1.0f: 1.0f;
+    const float sign_y = setting.flip_y ? -1.0f: 1.0f;
 
     file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
     file << "<g fill='#fff' stroke='#ddd' stroke-width='1'>\n";
@@ -967,8 +970,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     file << "</g>\n";
 
     for (const auto& point : point_1) {
-        const auto cx = point.mean.x * scale + offset;
-        const auto cy = sign * point.mean.y * scale + offset;
+        const auto cx = sign_x * point.mean.x * scale + offset;
+        const auto cy = sign_y * point.mean.y * scale + offset;
         if (setting.draw_point_covariance) {
             const auto& cov = point.cov;
             const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
@@ -986,8 +989,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     }
 
     for (const auto& point : point_2) {
-        const auto cx = point.mean.x * scale + offset;
-        const auto cy = sign * point.mean.y * scale + offset;
+        const auto cx = sign_x * point.mean.x * scale + offset;
+        const auto cy = sign_y * point.mean.y * scale + offset;
         if (setting.draw_point_covariance) {
             const auto& cov = point.cov;
             const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));
@@ -1007,8 +1010,8 @@ inline void writePointsToSVG(const std::vector<ndtpoint2>& point_1, const std::v
     {
         const auto x = odom.c;
         const auto y = odom.f;
-        const auto cx = x * scale + offset;
-        const auto cy = sign * y * scale + offset;
+        const auto cx = sign_x * x * scale + offset;
+        const auto cy = sign_y * y * scale + offset;
         if (setting.draw_odom_covariance) {
             const auto cov = H.inv();
             const float u = 0.5f * ((cov.a + cov.d) + std::sqrt((cov.a - cov.d) * (cov.a - cov.d) + 4.0f * cov.b * cov.b));

@@ -158,10 +158,11 @@ public:
 
     size_t saveAsSVG(const std::string& file_name) {
         ndtcpp::writeSVGSetting setting;
-        setting.size = 1000 * this->voxel_size_;
+        setting.size = 100 / std::max(this->voxel_size_, 0.1f);
         setting.point1_pt_color = "black";
         setting.point2_pt_color = "white";
-        setting.flip_y = true;
+        setting.flip_x = true;
+        setting.flip_y = false;
 
         std::ofstream file(file_name);
         if (!file.is_open()) {
@@ -178,7 +179,8 @@ public:
         const std::string point2_pt_color = setting.point2_pt_color;
         // const float voxel_size = setting.voxel_size;
         const std::string bg_color = "gray";
-        const int sign = setting.flip_y ? -1: 1;
+        const int sign_x = setting.flip_x ? -1: 1;
+        const int sign_y = setting.flip_y ? -1: 1;
 
         file << "<svg xmlns='http://www.w3.org/2000/svg' width='" << size << "' height='" << size << "'>\n";
         file << "<rect width='" << size << "' height='" << size << "' x='0' y='0' fill='" << bg_color << "' stroke='#000' />\n";
@@ -188,10 +190,10 @@ public:
             const auto prob = this->to_probability(voxel);
             // const auto prob = voxel.probability;
             if (prob >= this->occupied_threshold_) {
-                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << sign * std::get<1>(index) + offset  << "' fill='" << point1_pt_color << "'/>\n";
+                file << "<rect width='1' height='1' x='" << sign_x * std::get<0>(index) + offset << "' y='" << sign_y * std::get<1>(index) + offset  << "' fill='" << point1_pt_color << "'/>\n";
                 ++count;
             } else if (prob <= this->empty_threshold_) {
-                file << "<rect width='1' height='1' x='" << std::get<0>(index) + offset << "' y='" << sign * std::get<1>(index) + offset  << "' fill='" << point2_pt_color << "'/>\n";
+                file << "<rect width='1' height='1' x='" << sign_x * std::get<0>(index) + offset << "' y='" << sign_y * std::get<1>(index) + offset  << "' fill='" << point2_pt_color << "'/>\n";
                 ++count;
             }
         }
