@@ -8,8 +8,6 @@
 namespace ndtcpp {
 
 void extract_feature_points(const std::vector<ndtcpp::ndtpoint2>& points, const float corner_threshold, std::vector<ndtcpp::ndtpoint2>& lines, std::vector<ndtcpp::ndtpoint2>& corners) {
-    const auto plane_eigen_values = ndtcpp::mat2x2::diagonal(1.0f, .1f);
-
     lines.clear();
     corners.clear();
     lines.reserve(points.size());
@@ -19,16 +17,12 @@ void extract_feature_points(const std::vector<ndtcpp::ndtpoint2>& points, const 
         const auto& [eigen_val0, eigen_vec0] = eigen[0];
         const auto& [eigen_val1, eigen_vec1] = eigen[1];
         const float ratio = eigen_val0 / eigen_val1;
+        ndtcpp::mat2x2 mat = {eigen_vec0.x, eigen_vec1.x, eigen_vec0.y, eigen_vec1.y};
         if (ratio < corner_threshold) {
-            corners.push_back(pt);
+            mat = mat * ndtcpp::mat2x2::diagonal(5.0f, 5.0f) * mat.transpose();
+            corners.emplace_back(pt.mean, mat);
         } else {
-            ndtcpp::mat2x2 mat;
-            mat.a = eigen_vec0.x;
-            mat.b = eigen_vec1.x;
-            mat.c = eigen_vec0.y;
-            mat.d = eigen_vec1.y;
-            mat = mat * plane_eigen_values * mat.transpose();
-
+            mat = mat * ndtcpp::mat2x2::diagonal(1.0f, .1f) * mat.transpose();
             lines.emplace_back(pt.mean, mat);
         }
     }
@@ -119,7 +113,7 @@ inline ndtcpp::scan_matching_result loam_scan_matching(
             H_Mat += (mat_J_TxIM * mat_J);      // J.T * IM * J
             b_Point += (mat_J_TxIM * residual); // J.T * IM * residual
 
-            error += calc_gicp_error(query_point.mean, target_point.mean, IM);
+            error += ndtcpp::calc_gicp_error(query_point.mean, target_point.mean, IM);
             IMs_line.emplace_back(IM, target_point.mean, point_iter);
         }
 
@@ -169,7 +163,7 @@ inline ndtcpp::scan_matching_result loam_scan_matching(
             H_Mat += (mat_J_TxIM * mat_J);      // J.T * IM * J
             b_Point += (mat_J_TxIM * residual); // J.T * IM * residual
 
-            error += calc_gicp_error(query_point.mean, target_point.mean, IM);
+            error += ndtcpp::calc_gicp_error(query_point.mean, target_point.mean, IM);
             IMs_corner.emplace_back(IM, target_point.mean, point_iter);
         }
         b_Point *= -1.0f;

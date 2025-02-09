@@ -6,7 +6,6 @@
 
 namespace ndtcpp {
 
-namespace {
 inline float calc_gicp_error(
     const ndtcpp::point2& trans_source, const ndtcpp::point2& target, const ndtcpp::mat3x3& IM)
 {
@@ -17,7 +16,6 @@ inline float calc_gicp_error(
     };
     const ndtcpp::point3 IM_residual = IM * residual;
     return 0.5f * (residual.x * IM_residual.x + residual.y * IM_residual.y);
-}
 }
 
 struct GICP_PARAMS {

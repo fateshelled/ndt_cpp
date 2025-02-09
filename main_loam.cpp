@@ -15,7 +15,7 @@ int main(void){
     params.min_correspondence = 1;
     params.max_iter_num = 40;
     const float voxel_size = 0.5f;
-    const size_t voxel_min_count = 1;
+    const size_t voxel_min_count = 5;
     const float feature_threshold = 0.01f;
 
     for (size_t i = 0; i < N; ++i) {
@@ -60,6 +60,13 @@ int main(void){
         if (i == N - 1) {
             ndtcpp::writePointsToSVG(source, target, "scan_points_loam.svg");
             ndtcpp::writePointsToSVG(source_ndt, target_ndt, "scan_points_loam_cov.svg", {.ellipse_scale=10.0, .draw_point_covariance = true});
+            source_lines.insert(source_lines.end(), source_corners.begin(), source_corners.end());
+            target_lines.insert(target_lines.end(), target_corners.begin(), target_corners.end());
+            for (auto& pt: source_lines) {
+                pt.mean = ndtcpp::transformPointCopy(trans_mat1, pt.mean);
+                pt.cov = trans2x2 * pt.cov * trans2x2_T;
+            }
+            ndtcpp::writePointsToSVG(source_lines, target_lines, "scan_points_loam_feature.svg", {.ellipse_scale=1.0, .draw_point_covariance = true});
         }
     }
     const double mean = std::accumulate(durations.begin(), durations.end(), 0.0) / durations.size();

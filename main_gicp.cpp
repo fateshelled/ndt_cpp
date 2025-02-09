@@ -16,6 +16,7 @@ int main(void){
     params.min_correspondence = 1;
     params.max_iter_num = 40;
     const float voxel_size = 0.5f;
+    const size_t voxel_min_count = 5;
 
     for (size_t i = 0; i < N; ++i) {
 
@@ -29,8 +30,17 @@ int main(void){
         auto start_time = std::chrono::high_resolution_clock::now();
 
         const bool verbose = true;
-        ndtcpp::compute_ndt_points_downsampling(source, source_ndt, voxel_size);
-        ndtcpp::compute_ndt_points_downsampling(target, target_ndt, voxel_size);
+        {
+            auto source_downsampled = std::vector<ndtcpp::point2>();
+            auto target_downsampled = std::vector<ndtcpp::point2>();
+            ndtcpp::compute_voxel_downsampling(source, source_downsampled, voxel_size, voxel_min_count);
+            ndtcpp::compute_voxel_downsampling(target, target_downsampled, voxel_size, voxel_min_count);
+            ndtcpp::compute_covariances(source_downsampled, source_ndt);
+            ndtcpp::compute_covariances(target_downsampled, target_ndt);
+            ndtcpp::update_covariances_line(source_ndt);
+            ndtcpp::update_covariances_line(target_ndt);
+
+        }
         ndtcpp::gicp_scan_matching(trans_mat1, source_ndt, target_ndt, verbose, params);
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -49,7 +59,7 @@ int main(void){
         durations.push_back(microsec);
         if (i == N - 1) {
             ndtcpp::writePointsToSVG(source, target, "scan_points_gicp.svg");
-            ndtcpp::writePointsToSVG(source_ndt, target_ndt, "scan_points_gicp_cov.svg", {.ellipse_scale=5.0, .draw_point_covariance = true});
+            ndtcpp::writePointsToSVG(source_ndt, target_ndt, "scan_points_gicp_cov.svg", {.ellipse_scale=1.0, .draw_point_covariance = true});
         }
     }
     const double mean = std::accumulate(durations.begin(), durations.end(), 0.0) / durations.size();
