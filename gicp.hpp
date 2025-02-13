@@ -171,12 +171,10 @@ inline scan_matching_result gicp_scan_matching(
         }
 
         if (iter > 0) {
-            const float dx = std::fabs(prev_delta_inner.x - delta.x);
-            const float dy = std::fabs(prev_delta_inner.y - delta.y);
-            const float dz = std::fabs(prev_delta_inner.z - delta.z);
-            if (std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th) {
-                result.converged = true;
-            }
+            const float dx = std::fabs(prev_delta.x - delta.x);
+            const float dy = std::fabs(prev_delta.y - delta.y);
+            const float dz = std::fabs(prev_delta.z - delta.z);
+            result.converged = std::max(dx, dy) < param.converged_delta_xy_th && dz < param.converged_delta_rot_th;
         }
 
         if (result.converged) {
